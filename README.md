@@ -29,7 +29,7 @@ Installation
 The plugin is designed to run with GIMP version 2.8.x.
 
 ### Windows
-Take the [pre-compiled binary](https://github.com/chausner/gimp-jxr/releases/latest) and put it into "%USERPROFILE%\\.gimp-2.8\plug-ins" (create the folder if it doesn't exist). Alternatively, run ```<GIMP installation dir>\bin\gimptool-2.0.exe --install-bin <path to plugin binary>```.
+Take the [pre-compiled binary](https://github.com/chausner/gimp-jxr/releases/latest) and put it into "%USERPROFILE%\\.gimp-2.8\plug-ins" (create the folder if it doesn't exist). Alternatively, run ```<GIMP installation dir>\bin\gimptool-2.0.exe --install-bin <path to plugin binary>```. You'll need a 32-bit installation of GIMP.
 
 ### Ubuntu
 1. Make sure GIMP 2.8.x is installed and you have all required development files:
