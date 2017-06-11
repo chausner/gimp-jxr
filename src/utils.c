@@ -85,6 +85,25 @@ void convert_indexed_bw(guchar* pixels, guint width, guint height)
     }
 }
 
+void convert_rgba_bgra(guchar* pixels, guint width, guint height)
+{
+    guint y;
+    guint x;
+    guchar* p;
+    guchar tmp;
+
+    p = pixels;
+
+    for (y = 0; y < height; y++)
+        for (x = 0; x < width; x++)
+        {
+            tmp = p[0];
+            p[0] = p[2];
+            p[2] = tmp;
+            p += 4;
+        }
+}
+
 gboolean has_blackwhite_colormap(gint32 image_ID, gboolean* black_one)
 {
     guchar*     colormap;

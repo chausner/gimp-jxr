@@ -133,7 +133,7 @@ Export:
         pixel_format = GUID_PKPixelFormat24bppRGB; 
         break;
     case GIMP_RGBA_IMAGE:
-        pixel_format = GUID_PKPixelFormat32bppRGBA;
+        pixel_format = GUID_PKPixelFormat32bppBGRA;
         break;
     case GIMP_GRAY_IMAGE:
         pixel_format = GUID_PKPixelFormat8bppGray;
@@ -171,9 +171,9 @@ Export:
     {
     case GIMP_RUN_INTERACTIVE:
         gimp_get_data(SAVE_PROC, &save_options);
-        alpha_enabled = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppRGBA);
+        alpha_enabled = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA);
         subsampling_enabled = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat24bppRGB) ||
-            IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppRGBA);
+            IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA);
         if (show_options(&save_options, alpha_enabled, subsampling_enabled))
         {
             gimp_set_data(SAVE_PROC, &save_options, sizeof(SaveOptions));
@@ -253,6 +253,8 @@ Export:
         convert_indexed_bw(pixels, width, height);
         stride = (width + 7) / 8;
     }
+    else if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA))
+        convert_rgba_bgra(pixels, width, height);
 
     err = jxrlib_save(filename, width, height, stride, res_x, res_y, pixel_format, black_one, pixels, &save_options);
 
@@ -339,7 +341,7 @@ static void applySaveOptions(const SaveOptions* save_options, guint width, guint
     wmiSCP->bfBitstreamFormat = FREQUENCY;
     wmiSCP->bProgressiveMode = TRUE;    
     wmiSCP->sbSubband = SB_ALL;
-    wmiSCP->uAlphaMode = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppRGBA) ? 2 : 0;
+    wmiSCP->uAlphaMode = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA) ? 2 : 0;
     wmiSCP->bBlackWhite = black_one;    
     
     if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormatBlackWhite) ||
@@ -389,7 +391,7 @@ static void applySaveOptions(const SaveOptions* save_options, guint width, guint
         }
     }  
 
-    if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppRGBA) && wmiSCP_Alpha != NULL)
+    if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA) && wmiSCP_Alpha != NULL)
     {
         gfloat aq_float = save_options->alpha_quality / 100.0f;
     

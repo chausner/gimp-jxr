@@ -13,7 +13,7 @@ Images are saved in one of the following pixel formats:
 * 1bpp BlackWhite, if image mode is set to Indexed and the color map has exactly two entries black and white
 * 8bpp Grayscale, for grayscale images
 * 24bpp RGB, for color images without alpha channel
-* 32bpp RGBA, for color images with alpha channel
+* 32bpp BGRA, for color images with alpha channel
 
 Save options include:
 * Image quality 
