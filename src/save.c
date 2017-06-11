@@ -598,13 +598,13 @@ static void load_save_gui_defaults(const SaveGui* save_gui)
 /*static void open_help(const gchar* help_id, gpointer help_data)
 {
 #ifdef _WIN32
-    ShellExecute(NULL, "open", "http://gimpjpegxrplugin.codeplex.com/", NULL, NULL, SW_SHOWNORMAL);
+    ShellExecute(NULL, "open", "http://github.com/chausner/gimp-jxr", NULL, NULL, SW_SHOWNORMAL);
 #else
     pid_t pid;
     char *args[3];
 
     args[0] = "/usr/bin/xdg-open";
-    args[1] = "http://gimpjpegxrplugin.codeplex.com/";
+    args[1] = "http://github.com/chausner/gimp-jxr";
     args[2] = NULL;
     
     pid = fork();
