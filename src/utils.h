@@ -11,4 +11,20 @@ void convert_rgba_bgra(guchar* pixels, guint width, guint height);
 gboolean has_blackwhite_colormap(gint32 image_ID, gboolean* black_one);
 gchar* get_pixel_format_mnemonic(const PKPixelFormatGUID* pixel_format);
 
+typedef struct
+{
+	guint             width;
+	guint             height;
+	guint             stride;
+	gfloat            resolution_x;
+	gfloat            resolution_y;
+	PKPixelFormatGUID pixel_format;	
+	guchar*           color_context;
+    guint             color_context_size;
+	guchar*           xmp_metadata;
+	guint             xmp_metadata_size;
+	gboolean          black_one;
+	guchar*           pixels;
+} Image;
+
 #endif

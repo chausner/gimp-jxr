@@ -61,7 +61,7 @@ typedef struct
 
 static const SaveOptions DEFAULT_SAVE_OPTIONS = { 90, 100, OVERLAP_AUTO, SUBSAMPLING_444, TILING_NONE };
 
-static ERR jxrlib_save(const gchar *filename, guint width, guint height, guint stride, gfloat res_x, gfloat res_y, PKPixelFormatGUID pixel_format, gboolean black_one, const guchar *pixels, const SaveOptions* save_options);
+static ERR jxrlib_save(const gchar *filename, const Image* image, const SaveOptions* save_options);
 static void applySaveOptions(const SaveOptions* save_options, guint width, guint height, PKPixelFormatGUID pixel_format, gboolean black_one, CWMIStrCodecParam* wmiSCP, CWMIStrCodecParam* wmiSCP_Alpha);
 static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, gboolean subsampling_enabled);
 static void load_save_gui_defaults(const SaveGui* save_gui);
@@ -75,29 +75,29 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
 
     SaveOptions             save_options = DEFAULT_SAVE_OPTIONS;
 
-    gint                    width;
-    gint                    height;
     gchar*                  filename;
-    gdouble                 res_x;
-    gdouble                 res_y;
+	Image                   image;
+	gdouble                 res_x, res_y;
 
     GimpRunMode             run_mode;
     gint32                  image_ID;
     gint32                  drawable_ID;
     GimpImageType           image_type;
-    
-    gboolean                black_one;
 
     GimpPixelRgn            pixel_rgn;
     GimpDrawable*           drawable;
-    guchar*                 pixels;
-    guint                   stride;
-    PKPixelFormatGUID       pixel_format;
 
     ERR                     err;
 
     gboolean                alpha_enabled;
     gboolean                subsampling_enabled;
+
+	GimpParasite*           icc_parasite;
+	GimpParasite*           xmp_parasite;
+
+/*#ifdef _DEBUG
+    while (TRUE) { }
+#endif*/
     
     run_mode    = (GimpRunMode)param[0].data.d_int32;
     image_ID    = param[1].data.d_int32;
@@ -112,6 +112,8 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     ret_values[0].data.d_status = GIMP_PDB_EXECUTION_ERROR;
 
     gimp_ui_init(PLUG_IN_BINARY, FALSE);
+
+	memset(&image, 0, sizeof(image));
     
     capabilities = GIMP_EXPORT_CAN_HANDLE_RGB | GIMP_EXPORT_CAN_HANDLE_GRAY | 
         GIMP_EXPORT_CAN_HANDLE_INDEXED | GIMP_EXPORT_CAN_HANDLE_ALPHA;
@@ -130,22 +132,22 @@ Export:
     switch (image_type)
     {
     case GIMP_RGB_IMAGE:
-        pixel_format = GUID_PKPixelFormat24bppRGB; 
+        image.pixel_format = GUID_PKPixelFormat24bppRGB; 
         break;
     case GIMP_RGBA_IMAGE:
-        pixel_format = GUID_PKPixelFormat32bppBGRA;
+        image.pixel_format = GUID_PKPixelFormat32bppBGRA;
         break;
     case GIMP_GRAY_IMAGE:
-        pixel_format = GUID_PKPixelFormat8bppGray;
+        image.pixel_format = GUID_PKPixelFormat8bppGray;
         break;
     case GIMP_GRAYA_IMAGE:
         ret_values[1].type          = GIMP_PDB_STRING;
         ret_values[1].data.d_string = _("Grayscale images with an alpha channel are not supported.");
         return;
     case GIMP_INDEXED_IMAGE:        
-        if (has_blackwhite_colormap(image_ID, &black_one))
+        if (has_blackwhite_colormap(image_ID, &image.black_one))
         {
-            pixel_format = GUID_PKPixelFormatBlackWhite;
+            image.pixel_format = GUID_PKPixelFormatBlackWhite;
         }
         else
         {
@@ -171,9 +173,9 @@ Export:
     {
     case GIMP_RUN_INTERACTIVE:
         gimp_get_data(SAVE_PROC, &save_options);
-        alpha_enabled = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA);
-        subsampling_enabled = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat24bppRGB) ||
-            IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA);
+        alpha_enabled = IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA);
+        subsampling_enabled = IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat24bppRGB) ||
+            IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA);
         if (show_options(&save_options, alpha_enabled, subsampling_enabled))
         {
             gimp_set_data(SAVE_PROC, &save_options, sizeof(SaveOptions));
@@ -220,18 +222,23 @@ Export:
 
     drawable = gimp_drawable_get(drawable_ID);
 
-    width   = drawable->width;
-    height  = drawable->height;
+    image.width   = drawable->width;
+    image.height  = drawable->height;
 
-    if (!gimp_image_get_resolution(image_ID, &res_x, &res_y))
+	if (!gimp_image_get_resolution(image_ID, &res_x, &res_y))
     {
-        res_x = 72.0;
-        res_y = 72.0;
+		image.resolution_x = 72.0;
+		image.resolution_y = 72.0;
     }
+	else
+	{
+		image.resolution_x = res_x;
+		image.resolution_y = res_y;
+	}
 
-    stride = width * drawable->bpp;
+    image.stride = image.width * drawable->bpp;
 
-    err = PKAllocAligned(&pixels, stride * height, 128);
+    err = PKAllocAligned(&image.pixels, image.stride * image.height, 128);
     
     if (Failed(err))
     {
@@ -240,25 +247,51 @@ Export:
         return;
     }
 
-    gimp_pixel_rgn_init(&pixel_rgn, drawable, 0, 0, width, height, FALSE, FALSE);
-    gimp_pixel_rgn_get_rect(&pixel_rgn, pixels, 0, 0, width, height);
+    gimp_pixel_rgn_init(&pixel_rgn, drawable, 0, 0, image.width, image.height, FALSE, FALSE);
+    gimp_pixel_rgn_get_rect(&pixel_rgn, image.pixels, 0, 0, image.width, image.height);
 
     gimp_drawable_detach(drawable);
     
     if (export_return == GIMP_EXPORT_EXPORT)
         gimp_image_delete(image_ID);
         
-    if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormatBlackWhite))
+    if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormatBlackWhite))
     {
-        convert_indexed_bw(pixels, width, height);
-        stride = (width + 7) / 8;
+        convert_indexed_bw(image.pixels, image.width, image.height);
+        image.stride = (image.width + 7) / 8;
     }
-    else if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA))
-        convert_rgba_bgra(pixels, width, height);
+    else if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA))
+        convert_rgba_bgra(image.pixels, image.width, image.height);
 
-    err = jxrlib_save(filename, width, height, stride, res_x, res_y, pixel_format, black_one, pixels, &save_options);
+	icc_parasite = gimp_image_parasite_find(image_ID, "icc-profile");
 
-    PKFreeAligned(&pixels); 
+	if (icc_parasite != NULL)
+	{
+		image.color_context = gimp_parasite_data(icc_parasite);
+		image.color_context_size = gimp_parasite_data_size(icc_parasite);
+	}
+
+	xmp_parasite = gimp_image_parasite_find(image_ID, "gimp-metadata");
+
+	if (xmp_parasite != NULL && gimp_parasite_data_size(xmp_parasite) > 10 && strncmp(gimp_parasite_data(xmp_parasite), "GIMP_XMP_1", 10) == 0)
+	{
+		image.xmp_metadata = (guchar*)gimp_parasite_data(xmp_parasite) + 10; // skip metadata marker "GIMP_XMP_1"
+		image.xmp_metadata_size = gimp_parasite_data_size(xmp_parasite) - 10;
+	}
+
+    err = jxrlib_save(filename, &image, &save_options);
+
+    PKFreeAligned(&image.pixels); 
+
+	if (icc_parasite != NULL)
+	{
+		gimp_parasite_free(icc_parasite);
+	}
+
+	if (xmp_parasite != NULL)
+	{
+		gimp_parasite_free(xmp_parasite);
+	}
 
     if (!Failed(err))
     {
@@ -274,7 +307,7 @@ Export:
     gimp_progress_end();
 } 
 
-static ERR jxrlib_save(const gchar *filename, guint width, guint height, guint stride, gfloat res_x, gfloat res_y, PKPixelFormatGUID pixel_format, gboolean black_one, const guchar *pixels, const SaveOptions* save_options)
+static ERR jxrlib_save(const gchar *filename, const Image* image, const SaveOptions* save_options)
 {
     ERR                 err;
     PKFactory*          factory = NULL;
@@ -290,17 +323,27 @@ static ERR jxrlib_save(const gchar *filename, guint width, guint height, guint s
 
     Call(codec_factory->CreateCodec(&IID_PKImageWmpEncode, (void**)&encoder));
     
-    applySaveOptions(save_options, width, height, pixel_format, black_one, &wmiSCP, NULL);
+    applySaveOptions(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, NULL);
     
     Call(encoder->Initialize(encoder, stream, &wmiSCP, sizeof(wmiSCP)));
 
-    applySaveOptions(save_options, width, height, pixel_format, black_one, &wmiSCP, &encoder->WMP.wmiSCP_Alpha); 
+    applySaveOptions(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, &encoder->WMP.wmiSCP_Alpha); 
     
-    Call(encoder->SetPixelFormat(encoder, pixel_format));
-    Call(encoder->SetSize(encoder, width, height));
-    Call(encoder->SetResolution(encoder, res_x, res_y));
+    Call(encoder->SetPixelFormat(encoder, image->pixel_format));
+    Call(encoder->SetSize(encoder, image->width, image->height));
+	Call(encoder->SetResolution(encoder, image->resolution_x, image->resolution_y));
+	
+	if (image->color_context_size != 0)
+	{
+		Call(encoder->SetColorContext(encoder, image->color_context, image->color_context_size));
+	}
 
-    Call(encoder->WritePixels(encoder, height, pixels, stride));
+	if (image->xmp_metadata_size != 0)
+	{
+		Call(PKImageEncode_SetXMPMetadata_WMP(encoder, image->xmp_metadata, image->xmp_metadata_size));
+	}
+
+    Call(encoder->WritePixels(encoder, image->height, image->pixels, image->stride));
     
 Cleanup:
     if (encoder)
