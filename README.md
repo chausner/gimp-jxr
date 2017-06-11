@@ -44,8 +44,7 @@ Take the [pre-compiled binary](https://github.com/chausner/gimp-jxr/releases/lat
    
 3. Compile and install gimp-jxr:
    ```
-   cd gimp-jxr/src
-   export CFLAGS='-w -O -I/usr/include/jxrlib -D__ANSI__ -DDISABLE_PERF_MEASUREMENT load.c save.c utils.c'
-   export LIBS='-ljxrglue -ljpegxr'
-   gimptool-2.0 --install file-jxr.c
+   cd gimp-jxr
+   make
+   make install
    ```
