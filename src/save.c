@@ -76,8 +76,8 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     SaveOptions             save_options = DEFAULT_SAVE_OPTIONS;
 
     gchar*                  filename;
-	Image                   image;
-	gdouble                 res_x, res_y;
+    Image                   image;
+    gdouble                 res_x, res_y;
 
     GimpRunMode             run_mode;
     gint32                  image_ID;
@@ -92,8 +92,8 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     gboolean                alpha_enabled;
     gboolean                subsampling_enabled;
 
-	GimpParasite*           icc_parasite;
-	GimpParasite*           xmp_parasite;
+    GimpParasite*           icc_parasite;
+    GimpParasite*           xmp_parasite;
 
 /*#ifdef _DEBUG
     while (TRUE) { }
@@ -113,7 +113,7 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
 
     gimp_ui_init(PLUG_IN_BINARY, FALSE);
 
-	memset(&image, 0, sizeof(image));
+    memset(&image, 0, sizeof(image));
     
     capabilities = GIMP_EXPORT_CAN_HANDLE_RGB | GIMP_EXPORT_CAN_HANDLE_GRAY | 
         GIMP_EXPORT_CAN_HANDLE_INDEXED | GIMP_EXPORT_CAN_HANDLE_ALPHA;
@@ -225,16 +225,16 @@ Export:
     image.width   = drawable->width;
     image.height  = drawable->height;
 
-	if (!gimp_image_get_resolution(image_ID, &res_x, &res_y))
+    if (!gimp_image_get_resolution(image_ID, &res_x, &res_y))
     {
-		image.resolution_x = 72.0;
-		image.resolution_y = 72.0;
+        image.resolution_x = 72.0;
+        image.resolution_y = 72.0;
     }
-	else
-	{
-		image.resolution_x = res_x;
-		image.resolution_y = res_y;
-	}
+    else
+    {
+        image.resolution_x = res_x;
+        image.resolution_y = res_y;
+    }
 
     image.stride = image.width * drawable->bpp;
 
@@ -263,35 +263,35 @@ Export:
     else if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA))
         convert_rgba_bgra(image.pixels, image.width, image.height);
 
-	icc_parasite = gimp_image_parasite_find(image_ID, "icc-profile");
+    icc_parasite = gimp_image_parasite_find(image_ID, "icc-profile");
 
-	if (icc_parasite != NULL)
-	{
-		image.color_context = gimp_parasite_data(icc_parasite);
-		image.color_context_size = gimp_parasite_data_size(icc_parasite);
-	}
+    if (icc_parasite != NULL)
+    {
+        image.color_context = gimp_parasite_data(icc_parasite);
+        image.color_context_size = gimp_parasite_data_size(icc_parasite);
+    }
 
-	xmp_parasite = gimp_image_parasite_find(image_ID, "gimp-metadata");
+    xmp_parasite = gimp_image_parasite_find(image_ID, "gimp-metadata");
 
-	if (xmp_parasite != NULL && gimp_parasite_data_size(xmp_parasite) > 10 && strncmp(gimp_parasite_data(xmp_parasite), "GIMP_XMP_1", 10) == 0)
-	{
-		image.xmp_metadata = (guchar*)gimp_parasite_data(xmp_parasite) + 10; // skip metadata marker "GIMP_XMP_1"
-		image.xmp_metadata_size = gimp_parasite_data_size(xmp_parasite) - 10;
-	}
+    if (xmp_parasite != NULL && gimp_parasite_data_size(xmp_parasite) > 10 && strncmp(gimp_parasite_data(xmp_parasite), "GIMP_XMP_1", 10) == 0)
+    {
+        image.xmp_metadata = (guchar*)gimp_parasite_data(xmp_parasite) + 10; // skip metadata marker "GIMP_XMP_1"
+        image.xmp_metadata_size = gimp_parasite_data_size(xmp_parasite) - 10;
+    }
 
     err = jxrlib_save(filename, &image, &save_options);
 
     PKFreeAligned(&image.pixels); 
 
-	if (icc_parasite != NULL)
-	{
-		gimp_parasite_free(icc_parasite);
-	}
+    if (icc_parasite != NULL)
+    {
+        gimp_parasite_free(icc_parasite);
+    }
 
-	if (xmp_parasite != NULL)
-	{
-		gimp_parasite_free(xmp_parasite);
-	}
+    if (xmp_parasite != NULL)
+    {
+        gimp_parasite_free(xmp_parasite);
+    }
 
     if (!Failed(err))
     {
@@ -331,17 +331,17 @@ static ERR jxrlib_save(const gchar *filename, const Image* image, const SaveOpti
     
     Call(encoder->SetPixelFormat(encoder, image->pixel_format));
     Call(encoder->SetSize(encoder, image->width, image->height));
-	Call(encoder->SetResolution(encoder, image->resolution_x, image->resolution_y));
-	
-	if (image->color_context_size != 0)
-	{
-		Call(encoder->SetColorContext(encoder, image->color_context, image->color_context_size));
-	}
+    Call(encoder->SetResolution(encoder, image->resolution_x, image->resolution_y));
+    
+    if (image->color_context_size != 0)
+    {
+        Call(encoder->SetColorContext(encoder, image->color_context, image->color_context_size));
+    }
 
-	if (image->xmp_metadata_size != 0)
-	{
-		Call(PKImageEncode_SetXMPMetadata_WMP(encoder, image->xmp_metadata, image->xmp_metadata_size));
-	}
+    if (image->xmp_metadata_size != 0)
+    {
+        Call(PKImageEncode_SetXMPMetadata_WMP(encoder, image->xmp_metadata, image->xmp_metadata_size));
+    }
 
     Call(encoder->WritePixels(encoder, image->height, image->pixels, image->stride));
     

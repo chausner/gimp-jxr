@@ -13,18 +13,18 @@ gchar* get_pixel_format_mnemonic(const PKPixelFormatGUID* pixel_format);
 
 typedef struct
 {
-	guint             width;
-	guint             height;
-	guint             stride;
-	gfloat            resolution_x;
-	gfloat            resolution_y;
-	PKPixelFormatGUID pixel_format;	
-	guchar*           color_context;
+    guint             width;
+    guint             height;
+    guint             stride;
+    gfloat            resolution_x;
+    gfloat            resolution_y;
+    PKPixelFormatGUID pixel_format; 
+    guchar*           color_context;
     guint             color_context_size;
-	guchar*           xmp_metadata;
-	guint             xmp_metadata_size;
-	gboolean          black_one;
-	guchar*           pixels;
+    guchar*           xmp_metadata;
+    guint             xmp_metadata_size;
+    gboolean          black_one;
+    guchar*           pixels;
 } Image;
 
 #endif

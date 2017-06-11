@@ -15,7 +15,7 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     gchar*              error_message;
     ERR                 err;
 
-	Image               image;
+    Image               image;
 
     GimpImageBaseType   base_type;
     GimpImageType       image_type;
@@ -42,7 +42,7 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
 
     /*time = clock();*/
 
-	err = jxrlib_load(filename, &image, &error_message);
+    err = jxrlib_load(filename, &image, &error_message);
 
     if (Failed(err))
     {
@@ -77,7 +77,7 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     g_sprintf(time_message, _("Elapsed time: %f ms."), (double)(time) / CLOCKS_PER_SEC);
     g_message(time_message);*/
 
-	if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat24bppRGB))
+    if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat24bppRGB))
     {
         base_type = GIMP_RGB;
         image_type = GIMP_RGB_IMAGE;
@@ -101,7 +101,7 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     image_ID = gimp_image_new(image.width, image.height, base_type);
     
     gimp_image_set_filename(image_ID, filename);
-	gimp_image_set_resolution(image_ID, image.resolution_x, image.resolution_y);
+    gimp_image_set_resolution(image_ID, image.resolution_x, image.resolution_y);
     
     if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormatBlackWhite))
     {
@@ -128,14 +128,14 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
 
     PKFreeAligned(&image.pixels);
 
-	if (image.color_context_size != 0)
-	{
+    if (image.color_context_size != 0)
+    {
         GimpParasite* parasite;
-		parasite = gimp_parasite_new("icc-profile", GIMP_PARASITE_PERSISTENT | GIMP_PARASITE_UNDOABLE, image.color_context_size, image.color_context);
+        parasite = gimp_parasite_new("icc-profile", GIMP_PARASITE_PERSISTENT | GIMP_PARASITE_UNDOABLE, image.color_context_size, image.color_context);
         gimp_image_attach_parasite(image_ID, parasite);        
-		gimp_parasite_free(parasite);
-		g_free(image.color_context);
-	}
+        gimp_parasite_free(parasite);
+        g_free(image.color_context);
+    }
 
     ret_values[0].type          = GIMP_PDB_STATUS;
     ret_values[0].data.d_status = GIMP_PDB_SUCCESS;
@@ -154,7 +154,7 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
     PKFormatConverter*  converter = NULL;
     PKRect              rect;
     
-	memset(image, 0, sizeof(*image));
+    memset(image, 0, sizeof(*image));
 
     *error_message = NULL;
 
@@ -162,16 +162,16 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
 
     Call(codec_factory->CreateDecoderFromFile(filename, &decoder)); 
 
-	Call(decoder->GetSize(decoder, &image->width, &image->height)); 
-	Call(decoder->GetResolution(decoder, &image->resolution_x, &image->resolution_y));    
-	Call(decoder->GetPixelFormat(decoder, &image->pixel_format));
+    Call(decoder->GetSize(decoder, &image->width, &image->height)); 
+    Call(decoder->GetResolution(decoder, &image->resolution_x, &image->resolution_y));    
+    Call(decoder->GetPixelFormat(decoder, &image->pixel_format));
 
-	Call(decoder->GetColorContext(decoder, NULL, &image->color_context_size));
-	if (image->color_context_size != 0)
-	{
-	    image->color_context = g_new(guchar, image->color_context_size);
-	    Call(decoder->GetColorContext(decoder, image->color_context, &image->color_context_size));
-	}
+    Call(decoder->GetColorContext(decoder, NULL, &image->color_context_size));
+    if (image->color_context_size != 0)
+    {
+        image->color_context = g_new(guchar, image->color_context_size);
+        Call(decoder->GetColorContext(decoder, image->color_context, &image->color_context_size));
+    }
 
     image->black_one = decoder->WMP.wmiSCP.bBlackWhite;
 
@@ -184,7 +184,7 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
     
     if (Failed(err))
     {
-		PKPixelFormatGUID* pf = &image->pixel_format;
+        PKPixelFormatGUID* pf = &image->pixel_format;
         gchar* mnemonic = get_pixel_format_mnemonic(pf);
 
         *error_message = g_new(gchar, 128);
@@ -225,7 +225,7 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
     {
         guint bytes_per_pixel = get_bits_per_pixel(target_format) / 8;      
         compact_stride(image->pixels, image->width, image->height, image->stride, bytes_per_pixel);   
-		image->stride = bytes_per_pixel * image->width;
+        image->stride = bytes_per_pixel * image->width;
     }
     
     if (IsEqualGUID(target_format, &GUID_PKPixelFormatBlackWhite))
