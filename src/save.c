@@ -232,8 +232,8 @@ Export:
     }
     else
     {
-        image.resolution_x = res_x;
-        image.resolution_y = res_y;
+        image.resolution_x = (gfloat)res_x;
+        image.resolution_y = (gfloat)res_y;
     }
 
     image.stride = image.width * drawable->bpp;
@@ -466,7 +466,7 @@ static void apply_save_options(const SaveOptions* save_options, guint width, gui
         gint tile_size = 256 << (save_options->tiling - 1);
         
         gint i = 0;
-        gint p = 0;
+        guint p = 0;
         
         for (i = 0; i < MAX_TILES; i++)
         {
@@ -618,8 +618,8 @@ static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, 
 
     dialog_result = gimp_dialog_run(GIMP_DIALOG(save_gui.dialog)) == GTK_RESPONSE_OK;
     
-    save_options->image_quality = gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui.quality_entry));
-    save_options->alpha_quality = gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui.alpha_quality_entry));
+    save_options->image_quality = (gint)gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui.quality_entry));
+    save_options->alpha_quality = (gint)gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui.alpha_quality_entry));
     save_options->overlap = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui.overlap_combo_box));
     save_options->subsampling = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui.subsampling_combo_box));
     save_options->tiling = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui.tiling_combo_box));
