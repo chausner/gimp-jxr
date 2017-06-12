@@ -137,6 +137,20 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
         g_free(image.color_context);
     }
 
+    if (image.xmp_metadata_size != 0)
+    {
+        guchar* parasite_data;
+        GimpParasite* parasite;
+        parasite_data = g_new(guchar, image.xmp_metadata_size + 10); // prepend XMP data with metadata marker "GIMP_XMP_1"
+        strncpy(parasite_data, "GIMP_XMP_1", 10);
+        g_memmove(parasite_data + 10, image.xmp_metadata, image.xmp_metadata_size);
+        parasite = gimp_parasite_new("gimp-metadata", GIMP_PARASITE_PERSISTENT | GIMP_PARASITE_UNDOABLE, image.xmp_metadata_size + 10, parasite_data);
+        gimp_image_attach_parasite(image_ID, parasite);
+        gimp_parasite_free(parasite);
+        g_free(image.xmp_metadata);
+        g_free(parasite_data);
+    }
+
     ret_values[0].type          = GIMP_PDB_STATUS;
     ret_values[0].data.d_status = GIMP_PDB_SUCCESS;
     ret_values[1].type          = GIMP_PDB_IMAGE;
@@ -171,6 +185,13 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
     {
         image->color_context = g_new(guchar, image->color_context_size);
         Call(decoder->GetColorContext(decoder, image->color_context, &image->color_context_size));
+    }
+
+    Call(PKImageDecode_GetXMPMetadata_WMP(decoder, NULL, &image->xmp_metadata_size));
+    if (image->xmp_metadata_size != 0)
+    {
+        image->xmp_metadata = g_new(guchar, image->xmp_metadata_size);
+        Call(PKImageDecode_GetXMPMetadata_WMP(decoder, image->xmp_metadata, &image->xmp_metadata_size));
     }
 
     image->black_one = decoder->WMP.wmiSCP.bBlackWhite;
