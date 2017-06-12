@@ -300,3 +300,60 @@ gchar* get_pixel_format_mnemonic(const PKPixelFormatGUID* pixel_format)
             return NULL;        
     }
 }
+
+// the following metadata helper functions have been copied from jxrlib as they are missing in libjxr Debian packages
+
+ERR _PKImageDecode_GetMetadata_WMP(PKImageDecode *pID, U32 uOffset, U32 uByteCount, U8 *pbGot, U32 *pcbGot)
+{
+    ERR err = WMP_errSuccess;
+
+    if (pbGot && uOffset)
+    {
+        struct WMPStream* pWS = pID->pStream;
+        size_t iCurrPos;
+
+        FailIf(*pcbGot < uByteCount, WMP_errBufferOverflow);
+        Call(pWS->GetPos(pWS, &iCurrPos));
+        Call(pWS->SetPos(pWS, uOffset));
+        Call(pWS->Read(pWS, pbGot, uByteCount));
+        Call(pWS->SetPos(pWS, iCurrPos));
+    }
+
+Cleanup:
+    if (Failed(err))
+        *pcbGot = 0;
+    else
+        *pcbGot = uByteCount;
+
+    return err;
+}
+
+ERR _PKImageDecode_GetXMPMetadata_WMP(PKImageDecode *pID, U8 *pbXMPMetadata, U32 *pcbXMPMetadata)
+{
+    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uXMPMetadataOffset,
+        pID->WMP.wmiDEMisc.uXMPMetadataByteCount, pbXMPMetadata, pcbXMPMetadata);
+}
+
+ERR _PKImageDecode_GetEXIFMetadata_WMP(PKImageDecode *pID, U8 *pbEXIFMetadata, U32 *pcbEXIFMetadata)
+{
+    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uEXIFMetadataOffset,
+        pID->WMP.wmiDEMisc.uEXIFMetadataByteCount, pbEXIFMetadata, pcbEXIFMetadata);
+}
+
+ERR _PKImageDecode_GetGPSInfoMetadata_WMP(PKImageDecode *pID, U8 *pbGPSInfoMetadata, U32 *pcbGPSInfoMetadata)
+{
+    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uGPSInfoMetadataOffset,
+        pID->WMP.wmiDEMisc.uGPSInfoMetadataByteCount, pbGPSInfoMetadata, pcbGPSInfoMetadata);
+}
+
+ERR _PKImageDecode_GetIPTCNAAMetadata_WMP(PKImageDecode *pID, U8 *pbIPTCNAAMetadata, U32 *pcbIPTCNAAMetadata)
+{
+    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uIPTCNAAMetadataOffset,
+        pID->WMP.wmiDEMisc.uIPTCNAAMetadataByteCount, pbIPTCNAAMetadata, pcbIPTCNAAMetadata);
+}
+
+ERR _PKImageDecode_GetPhotoshopMetadata_WMP(PKImageDecode *pID, U8 *pbPhotoshopMetadata, U32 *pcbPhotoshopMetadata)
+{
+    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uPhotoshopMetadataOffset,
+        pID->WMP.wmiDEMisc.uPhotoshopMetadataByteCount, pbPhotoshopMetadata, pcbPhotoshopMetadata);
+}

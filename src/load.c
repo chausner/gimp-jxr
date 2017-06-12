@@ -187,11 +187,11 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
         Call(decoder->GetColorContext(decoder, image->color_context, &image->color_context_size));
     }
 
-    Call(PKImageDecode_GetXMPMetadata_WMP(decoder, NULL, &image->xmp_metadata_size));
+    Call(_PKImageDecode_GetXMPMetadata_WMP(decoder, NULL, &image->xmp_metadata_size));
     if (image->xmp_metadata_size != 0)
     {
         image->xmp_metadata = g_new(guchar, image->xmp_metadata_size);
-        Call(PKImageDecode_GetXMPMetadata_WMP(decoder, image->xmp_metadata, &image->xmp_metadata_size));
+        Call(_PKImageDecode_GetXMPMetadata_WMP(decoder, image->xmp_metadata, &image->xmp_metadata_size));
     }
 
     image->black_one = decoder->WMP.wmiSCP.bBlackWhite;
