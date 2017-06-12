@@ -62,7 +62,7 @@ typedef struct
 static const SaveOptions DEFAULT_SAVE_OPTIONS = { 90, 100, OVERLAP_AUTO, SUBSAMPLING_444, TILING_NONE };
 
 static ERR jxrlib_save(const gchar *filename, const Image* image, const SaveOptions* save_options);
-static void applySaveOptions(const SaveOptions* save_options, guint width, guint height, PKPixelFormatGUID pixel_format, gboolean black_one, CWMIStrCodecParam* wmiSCP, CWMIStrCodecParam* wmiSCP_Alpha);
+static void apply_save_options(const SaveOptions* save_options, guint width, guint height, PKPixelFormatGUID pixel_format, gboolean black_one, CWMIStrCodecParam* wmiSCP, CWMIStrCodecParam* wmiSCP_Alpha);
 static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, gboolean subsampling_enabled);
 static void load_save_gui_defaults(const SaveGui* save_gui);
 static void open_help(const gchar* help_id, gpointer help_data);
@@ -323,11 +323,11 @@ static ERR jxrlib_save(const gchar *filename, const Image* image, const SaveOpti
 
     Call(codec_factory->CreateCodec(&IID_PKImageWmpEncode, (void**)&encoder));
     
-    applySaveOptions(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, NULL);
+    apply_save_options(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, NULL);
     
     Call(encoder->Initialize(encoder, stream, &wmiSCP, sizeof(wmiSCP)));
 
-    applySaveOptions(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, &encoder->WMP.wmiSCP_Alpha); 
+    apply_save_options(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, &encoder->WMP.wmiSCP_Alpha); 
     
     Call(encoder->SetPixelFormat(encoder, image->pixel_format));
     Call(encoder->SetSize(encoder, image->width, image->height));
@@ -373,7 +373,7 @@ static int qp_table[12][6] = {
     {  2,  5,  6,  2,  5,  6 }
 };
 
-static void applySaveOptions(const SaveOptions* save_options, guint width, guint height, PKPixelFormatGUID pixel_format, gboolean black_one, CWMIStrCodecParam* wmiSCP, CWMIStrCodecParam* wmiSCP_Alpha)
+static void apply_save_options(const SaveOptions* save_options, guint width, guint height, PKPixelFormatGUID pixel_format, gboolean black_one, CWMIStrCodecParam* wmiSCP, CWMIStrCodecParam* wmiSCP_Alpha)
 {
     gfloat iq_float;
 
