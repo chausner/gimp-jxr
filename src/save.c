@@ -358,7 +358,7 @@ Cleanup:
     return err;
 }
 
-static int qp_table[12][6] = {
+static int qp_table[12][6] = { // optimized for PSNR
     { 67, 79, 86, 72, 90, 98 },
     { 59, 74, 80, 64, 83, 89 },
     { 53, 68, 75, 57, 76, 83 },
@@ -372,6 +372,21 @@ static int qp_table[12][6] = {
     {  7, 17, 21,  8, 17, 21 },
     {  2,  5,  6,  2,  5,  6 }
 };
+
+/*static int qp_table[12][6] = { // optimized for SSIM
+    { 67, 93, 98, 71, 98, 104 },
+    { 59, 83, 88, 61, 89,  95 },
+    { 50, 76, 81, 53, 85,  90 },
+    { 46, 71, 77, 47, 79,  85 },
+    { 41, 67, 71, 42, 75,  78 },
+    { 34, 59, 65, 35, 66,  72 },
+    { 30, 54, 60, 29, 60,  66 },
+    { 24, 48, 53, 22, 53,  58 },
+    { 18, 39, 45, 17, 43,  48 },
+    { 13, 34, 38, 11, 35,  38 },
+    {  8, 20, 24,  7, 22,  25 },
+    {  2,  5,  6,  2,  5,   6 }
+};*/
 
 static void apply_save_options(const SaveOptions* save_options, guint width, guint height, PKPixelFormatGUID pixel_format, gboolean black_one, CWMIStrCodecParam* wmiSCP, CWMIStrCodecParam* wmiSCP_Alpha)
 {
@@ -398,7 +413,7 @@ static void apply_save_options(const SaveOptions* save_options, guint width, gui
     if (iq_float == 1.0f)    
         wmiSCP->olOverlap = OL_NONE;
     else if (save_options->overlap == OVERLAP_AUTO)
-        wmiSCP->olOverlap = iq_float > 0.4f ? OL_ONE : OL_TWO;
+        wmiSCP->olOverlap = iq_float >= 0.5f ? OL_ONE : OL_TWO;
     else
         wmiSCP->olOverlap = save_options->overlap - 1;
     
