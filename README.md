@@ -1,9 +1,7 @@
 # gimp-jxr
-GIMP plugin for reading and writing of JPEG XR image files. The plugin is also available on the [GIMP Plugin Registry](http://registry.gimp.org/node/25508). 
+GIMP plugin for reading and writing of JPEG XR image files. 
 
 [![license](https://img.shields.io/github/license/chausner/gimp-jxr.svg)](https://github.com/chausner/gimp-jxr/blob/master/LICENSE)
-
-**NOTE:** Version 2.0 currently has a bug and writes non-standard files (that won't open in any other application) when the source image has an alpha channel. This will be fixed in a follow-up release.
 
 Features
 --------
@@ -24,12 +22,14 @@ Save options include:
 
 ¹ see [jxrlib](http://jxrlib.codeplex.com) documentation for more information
 
+The plugin supports reading and writing of images with embedded color profiles and XMP metadata.
+
 Installation
 ------------
 The plugin is designed to run with GIMP version 2.8.x.
 
 ### Windows
-Take the [pre-compiled binary](https://github.com/chausner/gimp-jxr/releases/latest) and put it into "%USERPROFILE%\\.gimp-2.8\plug-ins" (create the folder if it doesn't exist). Alternatively, run ```<GIMP installation dir>\bin\gimptool-2.0.exe --install-bin <path to plugin binary>```. You'll need a 32-bit installation of GIMP.
+Take the [pre-compiled binary](https://github.com/chausner/gimp-jxr/releases/latest) and put it into "%USERPROFILE%\\.gimp-2.8\plug-ins" (create the folder if it doesn't exist). Make sure you are using the x64 version of the plugin if your GIMP installation is 64-bit, otherwise use the x86 version. If you get the error code 0xc000007b on GIMP startup, you are using the wrong version of the plugin.
 
 ### Ubuntu
 1. Make sure GIMP 2.8.x is installed and you have all required development files:
