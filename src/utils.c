@@ -85,25 +85,6 @@ void convert_indexed_bw(guchar* pixels, guint width, guint height)
     }
 }
 
-void convert_rgba_bgra(guchar* pixels, guint width, guint height)
-{
-    guint y;
-    guint x;
-    guchar* p;
-    guchar tmp;
-
-    p = pixels;
-
-    for (y = 0; y < height; y++)
-        for (x = 0; x < width; x++)
-        {
-            tmp = p[0];
-            p[0] = p[2];
-            p[2] = tmp;
-            p += 4;
-        }
-}
-
 gboolean has_blackwhite_colormap(gint32 image_ID, gboolean* black_one)
 {
     guchar*     colormap;
@@ -301,59 +282,503 @@ gchar* get_pixel_format_mnemonic(const PKPixelFormatGUID* pixel_format)
     }
 }
 
-// the following metadata helper functions have been copied from jxrlib as they are missing in libjxr Debian packages
-
-ERR _PKImageDecode_GetMetadata_WMP(PKImageDecode *pID, U32 uOffset, U32 uByteCount, U8 *pbGot, U32 *pcbGot)
+gboolean has_pixel_format_alpha_channel(const PKPixelFormatGUID* pixel_format)
 {
-    ERR err = WMP_errSuccess;
+    ERR         err;
+    PKPixelInfo pixel_info;
 
-    if (pbGot && uOffset)
-    {
-        struct WMPStream* pWS = pID->pStream;
-        size_t iCurrPos;
+    pixel_info.pGUIDPixFmt = pixel_format;
 
-        FailIf(*pcbGot < uByteCount, WMP_errBufferOverflow);
-        Call(pWS->GetPos(pWS, &iCurrPos));
-        Call(pWS->SetPos(pWS, uOffset));
-        Call(pWS->Read(pWS, pbGot, uByteCount));
-        Call(pWS->SetPos(pWS, iCurrPos));
-    }
+    Call(PixelFormatLookup(&pixel_info, LOOKUP_FORWARD));
+
+    return pixel_info.grBit & PK_pixfmtHasAlpha;
 
 Cleanup:
-    if (Failed(err))
-        *pcbGot = 0;
+    return FALSE;
+}
+
+gboolean has_pixel_format_color_channels(const PKPixelFormatGUID* pixel_format)
+{
+    ERR         err;
+    PKPixelInfo pixel_info;
+
+    pixel_info.pGUIDPixFmt = pixel_format;
+
+    Call(PixelFormatLookup(&pixel_info, LOOKUP_FORWARD));
+
+    return pixel_info.cfColorFormat != Y_ONLY;
+
+Cleanup:
+    return TRUE;
+}
+
+void get_pixel_format_from_image_type_and_precision(GimpImageType image_type, GimpPrecision precision, PKPixelFormatGUID* pixel_format, const Babl** babl_pixel_format)
+{
+    GimpComponentType precision_type;
+    GimpImageBaseType base_type;
+    gboolean alpha;
+
+    switch (precision)
+    {
+    case GIMP_PRECISION_U8_LINEAR:
+    case GIMP_PRECISION_U8_GAMMA:
+        precision_type = GIMP_COMPONENT_TYPE_U8;
+        break;
+    case GIMP_PRECISION_U16_LINEAR:
+    case GIMP_PRECISION_U16_GAMMA:
+        precision_type = GIMP_COMPONENT_TYPE_U16;
+        break;
+    case GIMP_PRECISION_U32_LINEAR:
+    case GIMP_PRECISION_U32_GAMMA:
+        precision_type = GIMP_COMPONENT_TYPE_U32;
+        break;
+    case GIMP_PRECISION_HALF_LINEAR:
+    case GIMP_PRECISION_HALF_GAMMA:
+        precision_type = GIMP_COMPONENT_TYPE_HALF;
+        break;
+    case GIMP_PRECISION_FLOAT_LINEAR:
+    case GIMP_PRECISION_FLOAT_GAMMA:
+        precision_type = GIMP_COMPONENT_TYPE_FLOAT;
+        break;
+    case GIMP_PRECISION_DOUBLE_LINEAR:
+    case GIMP_PRECISION_DOUBLE_GAMMA:
+        precision_type = GIMP_COMPONENT_TYPE_DOUBLE;
+        break;
+    }
+
+    switch (image_type)
+    {
+    case GIMP_RGB_IMAGE:
+        base_type = GIMP_RGB;
+        alpha = FALSE;
+        break;
+    case GIMP_RGBA_IMAGE:
+        base_type = GIMP_RGB;
+        alpha = TRUE;
+        break;
+    case GIMP_GRAY_IMAGE:
+        base_type = GIMP_GRAY;
+        alpha = FALSE;
+        break;
+    case GIMP_GRAYA_IMAGE:
+        base_type = GIMP_GRAY;
+        alpha = TRUE;
+        break;
+    case GIMP_INDEXED_IMAGE:
+        base_type = GIMP_INDEXED;
+        alpha = FALSE;
+        break;
+    case GIMP_INDEXEDA_IMAGE:
+        base_type = GIMP_INDEXED;
+        alpha = TRUE;
+        break;
+    }
+
+    if (base_type == GIMP_RGB && precision_type == GIMP_COMPONENT_TYPE_U8)
+        if (!alpha)
+        {
+            *pixel_format = GUID_PKPixelFormat24bppRGB;
+            *babl_pixel_format = babl_format("R'G'B' u8");
+        }
+        else
+        {
+            *pixel_format = GUID_PKPixelFormat32bppBGRA;
+            *babl_pixel_format = babl_format_new(
+                babl_model("R'G'B'A"),
+                babl_type("u8"),
+                babl_component("B'"),
+                babl_component("G'"),
+                babl_component("R'"),
+                babl_component("A"),
+                NULL);
+        }
+    else if (base_type == GIMP_RGB && (precision_type == GIMP_COMPONENT_TYPE_U16 || precision_type == GIMP_COMPONENT_TYPE_U32))
+        if (!alpha)
+        {
+            *pixel_format = GUID_PKPixelFormat48bppRGB;
+            *babl_pixel_format = babl_format("R'G'B' u16");
+        }
+        else
+        {
+            *pixel_format = GUID_PKPixelFormat64bppRGBA;
+            *babl_pixel_format = babl_format("R'G'B'A u16");
+        }
+    else if (base_type == GIMP_RGB && precision_type == GIMP_COMPONENT_TYPE_HALF)
+        if (!alpha)
+        {
+            *pixel_format = GUID_PKPixelFormat48bppRGBHalf;
+            *babl_pixel_format = babl_format("RGB half");
+        }
+        else
+        {
+            *pixel_format = GUID_PKPixelFormat64bppRGBAHalf;
+            *babl_pixel_format = babl_format("RGBA half");
+        }
+    else if (base_type == GIMP_RGB && (precision_type == GIMP_COMPONENT_TYPE_FLOAT || precision_type == GIMP_COMPONENT_TYPE_DOUBLE))
+        if (!alpha)
+        {
+            *pixel_format = GUID_PKPixelFormat128bppRGBFloat;
+            *babl_pixel_format = babl_format_new(
+                babl_model("RGB"),
+                babl_type("float"),
+                babl_component("R"),
+                babl_component("G"),
+                babl_component("B"),
+                babl_component("PAD"),
+                NULL);
+        }
+        else
+        {
+            *pixel_format = GUID_PKPixelFormat128bppRGBAFloat;
+            *babl_pixel_format = babl_format("RGBA float");
+        }
+    else if (base_type == GIMP_GRAY && precision_type == GIMP_COMPONENT_TYPE_U8)
+    {
+        *pixel_format = GUID_PKPixelFormat8bppGray;
+        *babl_pixel_format = babl_format("Y' u8");
+    }
+    else if (base_type == GIMP_GRAY && (precision_type == GIMP_COMPONENT_TYPE_U16 || precision_type == GIMP_COMPONENT_TYPE_U32))
+    {
+        *pixel_format = GUID_PKPixelFormat16bppGray;
+        *babl_pixel_format = babl_format("Y' u16");
+    }
+    else if (base_type == GIMP_GRAY && precision_type == GIMP_COMPONENT_TYPE_HALF)
+    {
+        *pixel_format = GUID_PKPixelFormat16bppGrayHalf;
+        *babl_pixel_format = babl_format("Y half");
+    }
+    else if (base_type == GIMP_GRAY && (precision_type == GIMP_COMPONENT_TYPE_FLOAT || precision_type == GIMP_COMPONENT_TYPE_DOUBLE))
+    {
+        *pixel_format = GUID_PKPixelFormat32bppGrayFloat;
+        *babl_pixel_format = babl_format("Y float");
+    }
+}
+
+gboolean get_image_type_and_precision_from_pixel_format(const PKPixelFormatGUID* pixel_format, GimpImageBaseType* base_type, GimpImageType* image_type, GimpPrecision* precision, const Babl** babl_pixel_format, const PKPixelFormatGUID** conv_pixel_format)
+{
+    const PKPixelFormatGUID* final_pixel_format;
+
+    if (IsEqualGUID(pixel_format, &GUID_PKPixelFormatBlackWhite))
+    {
+        *base_type = GIMP_INDEXED;
+        *image_type = GIMP_INDEXED_IMAGE;
+    }
+    else if (!has_pixel_format_color_channels(pixel_format))
+    {
+        *base_type = GIMP_GRAY;
+        *image_type = GIMP_GRAY_IMAGE;
+    }
+    else if (!has_pixel_format_alpha_channel(pixel_format))
+    {
+        *base_type = GIMP_RGB;
+        *image_type = GIMP_RGB_IMAGE;
+    }
     else
-        *pcbGot = uByteCount;
+    {
+        *base_type = GIMP_RGB;
+        *image_type = GIMP_RGBA_IMAGE;
+    }
 
-    return err;
-}
+    ERR         err;
+    PKPixelInfo pixel_info;
 
-ERR _PKImageDecode_GetXMPMetadata_WMP(PKImageDecode *pID, U8 *pbXMPMetadata, U32 *pcbXMPMetadata)
-{
-    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uXMPMetadataOffset,
-        pID->WMP.wmiDEMisc.uXMPMetadataByteCount, pbXMPMetadata, pcbXMPMetadata);
-}
+    pixel_info.pGUIDPixFmt = pixel_format;
 
-ERR _PKImageDecode_GetEXIFMetadata_WMP(PKImageDecode *pID, U8 *pbEXIFMetadata, U32 *pcbEXIFMetadata)
-{
-    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uEXIFMetadataOffset,
-        pID->WMP.wmiDEMisc.uEXIFMetadataByteCount, pbEXIFMetadata, pcbEXIFMetadata);
-}
+    Call(PixelFormatLookup(&pixel_info, LOOKUP_FORWARD));
 
-ERR _PKImageDecode_GetGPSInfoMetadata_WMP(PKImageDecode *pID, U8 *pbGPSInfoMetadata, U32 *pcbGPSInfoMetadata)
-{
-    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uGPSInfoMetadataOffset,
-        pID->WMP.wmiDEMisc.uGPSInfoMetadataByteCount, pbGPSInfoMetadata, pcbGPSInfoMetadata);
-}
+    switch (pixel_info.bdBitDepth)
+    {
+    case BD_1:
+    case BD_1alt:
+    case BD_5:
+    case BD_565:
+    case BD_8:
+        *precision = GIMP_PRECISION_U8_GAMMA;
+        break;
+    case BD_10:
+    case BD_16:
+        *precision = GIMP_PRECISION_U16_GAMMA;
+        break;
+    case BD_32:
+        *precision = GIMP_PRECISION_U32_GAMMA;
+        break;
+    case BD_16F:
+        *precision = GIMP_PRECISION_HALF_LINEAR;
+        break;
+    case BD_16S:
+    case BD_32F:
+    case BD_32S:
+        *precision = GIMP_PRECISION_FLOAT_LINEAR;
+        break;
+    default:
+        return FALSE;
+    }
 
-ERR _PKImageDecode_GetIPTCNAAMetadata_WMP(PKImageDecode *pID, U8 *pbIPTCNAAMetadata, U32 *pcbIPTCNAAMetadata)
-{
-    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uIPTCNAAMetadataOffset,
-        pID->WMP.wmiDEMisc.uIPTCNAAMetadataByteCount, pbIPTCNAAMetadata, pcbIPTCNAAMetadata);
-}
+    switch (pixel_format->Data4[7])
+    {
+    //case 0x0C:
+    //    *conv_pixel_format = &GUID_PKPixelFormat24bppRGB;
+    //    break;
+        //return "24bppBGR";
+    //case 0x0E:
+    //    *conv_pixel_format = &GUID_PKPixelFormat24bppRGB; 
+    //    break;
+        //return "32bppBGR";
+    case 0x12:
+        *conv_pixel_format = &GUID_PKPixelFormat96bppRGBFloat;
+        break;
+        //return "48bppRGBFixedPoint";
+    case 0x18:
+        *conv_pixel_format = &GUID_PKPixelFormat96bppRGBFloat;
+        break;
+        //return "96bppRGBFixedPoint";
+    case 0x40:
+        *conv_pixel_format = &GUID_PKPixelFormat96bppRGBFloat;
+        break;
+        //return "64bppRGBFixedPoint";
+    //case 0x42:
+    //    *conv_pixel_format = &GUID_PKPixelFormat48bppRGBHalf;
+    //    break;
+        //return "64bppRGBHalf";
+    case 0x41:
+        *conv_pixel_format = &GUID_PKPixelFormat96bppRGBFloat;
+        break;
+        //return "128bppRGBFixedPoint";
+    //case 0x1B:
+    //    *conv_pixel_format = &GUID_PKPixelFormat96bppRGBFloat;
+    //    break;
+        //return "128bppRGBFloat";
+    //case 0x0F:
+    //    *conv_pixel_format = &GUID_PKPixelFormat32bppRGBA; 
+    //    break;
+        //return "32bppBGRA";
+    case 0x1D:
+        *conv_pixel_format = &GUID_PKPixelFormat128bppRGBAFloat;
+        break;
+        //return "64bppRGBAFixedPoint";
+    case 0x1E:
+        *conv_pixel_format = &GUID_PKPixelFormat128bppRGBAFloat;
+        break;
+        //return "128bppRGBAFixedPoint";
+    //case 0x10:
+    //    *conv_pixel_format = &GUID_PKPixelFormat32bppRGBA;
+    //    break;
+        //return "32bppPBGRA";
+    //case 0x17:
+    //    *conv_pixel_format = &GUID_PKPixelFormat64bppRGBA;
+    //    break;
+        //return "64bppPRGBA";
+    //case 0x1A:
+    //    *conv_pixel_format = &GUID_PKPixelFormat128bppRGBAFloat;
+    //    break;
+        //return "128bppPRGBAFloat";
+    case 0x13:
+        *conv_pixel_format = &GUID_PKPixelFormat32bppGrayFloat; 
+        break;
+        //return "16bppGrayFixedPoint";
+    case 0x3F:
+        *conv_pixel_format = &GUID_PKPixelFormat32bppGrayFloat;
+        break;
+        //return "32bppGrayFixedPoint";
+    case 0x09:
+        *conv_pixel_format = &GUID_PKPixelFormat24bppRGB;
+        break;
+        //return "16bppBGR555";
+    case 0x0A:
+        *conv_pixel_format = &GUID_PKPixelFormat24bppRGB;
+        break;
+        //return "16bppBGR565";
+    case 0x14:
+        *conv_pixel_format = &GUID_PKPixelFormat48bppRGB;
+        break;
+        //return "32bppBGR101010";
+    case 0x3D:
+        *conv_pixel_format = &GUID_PKPixelFormat96bppRGBFloat;
+        break;
+        //return "32bppRGBE";
+    default:
+        *conv_pixel_format = NULL;
+        break;
+    }
 
-ERR _PKImageDecode_GetPhotoshopMetadata_WMP(PKImageDecode *pID, U8 *pbPhotoshopMetadata, U32 *pcbPhotoshopMetadata)
-{
-    return _PKImageDecode_GetMetadata_WMP(pID, pID->WMP.wmiDEMisc.uPhotoshopMetadataOffset,
-        pID->WMP.wmiDEMisc.uPhotoshopMetadataByteCount, pbPhotoshopMetadata, pcbPhotoshopMetadata);
+    if (*conv_pixel_format != NULL)
+        final_pixel_format = *conv_pixel_format;
+    else
+        final_pixel_format = pixel_format;
+
+    switch (final_pixel_format->Data4[7])
+    {
+    case 0x0D:        
+        *babl_pixel_format = babl_format("R'G'B' u8");
+        break;
+        //return "24bppRGB";
+    case 0x0C:
+        *babl_pixel_format = babl_format_new(
+            babl_model("R'G'B'"),
+            babl_type("u8"),
+            babl_component("B'"),
+            babl_component("G'"),
+            babl_component("R'"),
+            NULL);
+        break;
+        //return "24bppBGR";
+    case 0x0E:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("R'G'B'"),
+            babl_type("u8"),
+            babl_component("B'"),
+            babl_component("G'"),
+            babl_component("R'"),
+            babl_component("PAD"),
+            NULL);
+        break;
+        //return "32bppBGR";
+    case 0x15:
+        *babl_pixel_format = babl_format("R'G'B' u16");
+        break;
+        //return "48bppRGB";
+    case 0x3B:
+        *babl_pixel_format = babl_format("RGB half");
+        break;
+        //return "48bppRGBHalf";
+    case 0x42:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("RGB"),
+            babl_type("half"),
+            babl_component("R"),
+            babl_component("G"),
+            babl_component("B"),
+            babl_component("PAD"),
+            NULL);
+        break;
+        //return "64bppRGBHalf";
+    case 0x27:
+        *babl_pixel_format = babl_format("RGB float"); 
+        break;
+        //return "96bppRGBFloat";
+    case 0x1B:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("RGB"),
+            babl_type("float"),
+            babl_component("R"),
+            babl_component("G"),
+            babl_component("B"),
+            babl_component("PAD"),
+            NULL);
+        break;
+        //return "128bppRGBFloat";
+    case 0x0F:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("R'G'B'A"),
+            babl_type("u8"),
+            babl_component("B'"),
+            babl_component("G'"),
+            babl_component("R'"),
+            babl_component("A"),
+            NULL);
+        break;
+        //return "32bppBGRA";
+    case 0x16:
+        *babl_pixel_format = babl_format("R'G'B'A u16");
+        break;
+        //return "64bppRGBA";
+    case 0x3A:
+        *babl_pixel_format = babl_format("RGBA half"); // test!
+        break;
+        //return "64bppRGBAHalf";
+    case 0x19:
+        *babl_pixel_format = babl_format("RGBA float");
+        break;
+        //return "128bppRGBAFloat";
+    case 0x10:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("R'aG'aB'aA"),
+            babl_type("u8"),
+            babl_component("B'a"),
+            babl_component("G'a"),
+            babl_component("R'a"),
+            babl_component("A"),
+            NULL);
+        break;
+        //return "32bppPBGRA";
+    case 0x17:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("R'aG'aB'aA"),
+            babl_type("u16"),
+            babl_component("R'a"),
+            babl_component("G'a"),
+            babl_component("B'a"),
+            babl_component("A"),
+            NULL);
+        break;
+        //return "64bppPRGBA";
+    case 0x1A:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("RaGaBaA"),
+            babl_type("float"),
+            babl_component("Ra"),
+            babl_component("Ga"),
+            babl_component("Ba"),
+            babl_component("A"),
+            NULL);
+        break;
+        //return "128bppPRGBAFloat";
+    case 0x1C:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("CMYK"),
+            babl_type("u8"),
+            babl_component("C"),
+            babl_component("M"),
+            babl_component("Y"),
+            babl_component("K"),
+            NULL);
+        break;
+        //return "32bppCMYK";
+    //case 0x2C:
+    //    *babl_pixel_format = babl_format("CMYKA u8");
+    //    break;
+        //return "40bppCMYKAlpha";
+    case 0x1F:
+        *babl_pixel_format = babl_format_new( // test!
+            babl_model("CMYK"),
+            babl_type("u16"),
+            babl_component("C"),
+            babl_component("M"),
+            babl_component("Y"),
+            babl_component("K"),
+            NULL);
+        break;
+        //return "64bppCMYK";
+    //case 0x2D:
+    //    *babl_pixel_format = babl_format("CMYKA u16");
+    //    break;
+        //return "80bppCMYKAlpha";
+    case 0x08:
+        *babl_pixel_format = babl_format("Y' u8");
+        break;
+        //return "8bppGray";
+    case 0x0B:
+        *babl_pixel_format = babl_format("Y' u16");
+        break;
+        //return "16bppGray";
+    case 0x3E:
+        *babl_pixel_format = babl_format("Y half"); // test!
+        break;
+        //return "16bppGrayHalf";
+    case 0x11:
+        *babl_pixel_format = babl_format("Y float");
+        break;
+        //return "32bppGrayFloat";
+    case 0x05:
+        *babl_pixel_format = NULL; // the correct pixel_format should be determined later by gimp_drawable_get_format here
+        break;
+        //return "BlackWhite";
+    default:
+        return FALSE;
+    }
+
+    return TRUE;
+
+Cleanup:
+    return FALSE;
 }

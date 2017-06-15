@@ -1,31 +1,29 @@
 #include "file-jxr.h"
-#include <JXRGlue.h>
 #include "utils.h"
-#include <glib/gprintf.h>
+#include <JXRGlue.h>
 
 static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_message);
-static ERR get_target_pixel_format(const PKPixelFormatGUID* source, const PKPixelFormatGUID** target);
-static void compact_stride(guchar* pixels, gint width, gint height, gint stride, gint bytes_per_pixel);
+static gboolean get_conv_pixel_format(const PKPixelFormatGUID* source, const PKPixelFormatGUID** target);
 
 void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** return_vals)
 {
-    GimpParam*          ret_values;
+    GimpParam*               ret_values;
 
-    gchar*              filename;
-    gchar*              error_message;
-    ERR                 err;
+    gchar*                   filename;
+    gchar*                   error_message;
+    ERR                      err;
 
-    Image               image;
+    Image                    image;
 
-    GimpImageBaseType   base_type;
-    GimpImageType       image_type;
-    gint32              image_ID;
-    gint32              layer_ID;
-    GimpDrawable*       drawable;
-    GimpPixelRgn        pixel_rgn;
+    GimpImageBaseType        base_type;
+    GimpImageType            image_type;
+    gint32                   image_ID;
+    gint32                   layer_ID;
+    GeglBuffer*              gegl_buffer;
 
-    /*clock_t             time;
-    gchar*              time_message;*/
+    GimpPrecision            precision;
+    const Babl*              babl_pixel_format;
+    const PKPixelFormatGUID* conv_pixel_format;
 
 /*#ifdef _DEBUG
     while (TRUE) { }
@@ -36,11 +34,9 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     ret_values = g_new(GimpParam, 2);
 
     *nreturn_vals = 2;
-    *return_vals = ret_values;  
+    *return_vals = ret_values;
 
     gimp_progress_init_printf(_("Loading '%s'"), gimp_filename_to_utf8(filename));
-
-    /*time = clock();*/
 
     err = jxrlib_load(filename, &image, &error_message);
 
@@ -62,51 +58,30 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
             }
         }
 
-        ret_values[0].type          = GIMP_PDB_STATUS;
-        ret_values[0].data.d_status = GIMP_PDB_EXECUTION_ERROR; 
-        ret_values[1].type          = GIMP_PDB_STRING;
+        ret_values[0].type = GIMP_PDB_STATUS;
+        ret_values[0].data.d_status = GIMP_PDB_EXECUTION_ERROR;
+        ret_values[1].type = GIMP_PDB_STRING;
         ret_values[1].data.d_string = error_message;
-        
+
         gimp_progress_end();
         return;
     }
 
-    /*time = clock() - time;
-
-    time_message = g_new(gchar, 128);
-    g_sprintf(time_message, _("Elapsed time: %f ms."), (double)(time) / CLOCKS_PER_SEC);
-    g_message(time_message);*/
-
-    if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat24bppRGB))
+    if (!get_image_type_and_precision_from_pixel_format(&image.pixel_format, &base_type, &image_type, &precision, &babl_pixel_format,
+        &conv_pixel_format))
     {
-        base_type = GIMP_RGB;
-        image_type = GIMP_RGB_IMAGE;
-    }
-    else if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppRGBA))
-    {
-        base_type = GIMP_RGB;
-        image_type = GIMP_RGBA_IMAGE;
-    }
-    else if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat8bppGray))
-    {
-        base_type = GIMP_GRAY;
-        image_type = GIMP_GRAY_IMAGE;
-    }
-    else if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormatBlackWhite))
-    {
-        base_type = GIMP_INDEXED;
-        image_type = GIMP_INDEXED_IMAGE;
+        return; // TODO: error!
     }
 
-    image_ID = gimp_image_new(image.width, image.height, base_type);
-    
+    image_ID = gimp_image_new_with_precision(image.width, image.height, base_type, precision);
+
     gimp_image_set_filename(image_ID, filename);
     gimp_image_set_resolution(image_ID, image.resolution_x, image.resolution_y);
-    
+
     if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormatBlackWhite))
     {
-        guchar colormap[] = { 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF };
-        
+        guchar colormap [] = { 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF };
+
         if (image.black_one)
         {
             colormap[0] = colormap[1] = colormap[2] = 0xFF;
@@ -117,14 +92,17 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     }
 
     layer_ID = gimp_layer_new(image_ID, "Background", image.width, image.height, image_type, 100.0, GIMP_NORMAL_MODE);
-    drawable = gimp_drawable_get(layer_ID);
 
-    gimp_pixel_rgn_init(&pixel_rgn, drawable, 0, 0, image.width, image.height, TRUE, FALSE);
-    gimp_pixel_rgn_set_rect(&pixel_rgn, image.pixels, 0, 0, image.width, image.height);
+    gimp_image_insert_layer(image_ID, layer_ID, -1, 0);
 
-    gimp_drawable_update(layer_ID, 0, 0, image.width, image.height);
-    gimp_image_add_layer(image_ID, layer_ID, 0);
-    gimp_drawable_detach(drawable);
+    if (image_type == GIMP_INDEXED_IMAGE)
+        babl_pixel_format = gimp_drawable_get_format(layer_ID);
+
+    gegl_buffer = gimp_drawable_get_buffer(layer_ID);
+
+    gegl_buffer_set(gegl_buffer, GEGL_RECTANGLE(0, 0, image.width, image.height), 0, babl_pixel_format, image.pixels, image.stride);
+
+    g_object_unref(gegl_buffer);
 
     PKFreeAligned(&image.pixels);
 
@@ -132,23 +110,51 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     {
         GimpParasite* parasite;
         parasite = gimp_parasite_new("icc-profile", GIMP_PARASITE_PERSISTENT | GIMP_PARASITE_UNDOABLE, image.color_context_size, image.color_context);
-        gimp_image_attach_parasite(image_ID, parasite);        
+        gimp_image_attach_parasite(image_ID, parasite);
         gimp_parasite_free(parasite);
         g_free(image.color_context);
     }
 
-    if (image.xmp_metadata_size != 0)
+    if (image.exif_metadata_size != 0 || image.xmp_metadata_size != 0)
     {
-        guchar* parasite_data;
-        GimpParasite* parasite;
-        parasite_data = g_new(guchar, image.xmp_metadata_size + 10); // prepend XMP data with metadata marker "GIMP_XMP_1"
-        strncpy(parasite_data, "GIMP_XMP_1", 10);
-        g_memmove(parasite_data + 10, image.xmp_metadata, image.xmp_metadata_size);
-        parasite = gimp_parasite_new("gimp-metadata", GIMP_PARASITE_PERSISTENT | GIMP_PARASITE_UNDOABLE, image.xmp_metadata_size + 10, parasite_data);
-        gimp_image_attach_parasite(image_ID, parasite);
-        gimp_parasite_free(parasite);
-        g_free(image.xmp_metadata);
-        g_free(parasite_data);
+        GimpMetadata* metadata;
+        GError*       gError = NULL;
+
+        metadata = gimp_metadata_new();
+
+        if (image.exif_metadata_size != 0)
+        {
+            guchar exifHeader[14] = {
+                0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00
+            };
+
+            guchar* exifMetadataWithHeader = g_new(guchar, image.exif_metadata_size + sizeof(exifHeader));
+
+            g_memmove(exifMetadataWithHeader, &exifHeader, sizeof(exifHeader));
+            g_memmove(exifMetadataWithHeader + sizeof(exifHeader), image.exif_metadata, image.exif_metadata_size);
+
+            if (gimp_metadata_set_from_exif(metadata, exifMetadataWithHeader, image.exif_metadata_size + sizeof(exifHeader), &gError))
+            {
+                gimp_image_set_metadata(image_ID, metadata);
+            }
+
+            g_free(exifMetadataWithHeader);            
+        }
+
+        if (image.xmp_metadata_size != 0)
+        {
+            if (gimp_metadata_set_from_xmp(metadata, image.xmp_metadata - 10, image.xmp_metadata_size + 10, &gError))
+            {
+                gimp_image_set_metadata(image_ID, metadata);
+            }
+        }
+
+        if (image.iptc_metadata_size != 0)
+        {
+            // TODO
+        }
+
+        g_object_unref(metadata);
     }
 
     ret_values[0].type          = GIMP_PDB_STATUS;
@@ -164,11 +170,11 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
     ERR                 err;
     PKCodecFactory*     codec_factory = NULL;
     PKImageDecode*      decoder = NULL;
-    PKPixelFormatGUID*  target_format;
+    PKPixelFormatGUID*  conv_pixel_format;
     PKFormatConverter*  converter = NULL;
     PKRect              rect;
     
-    memset(image, 0, sizeof(*image));
+	memset(image, 0, sizeof(*image));
 
     *error_message = NULL;
 
@@ -176,15 +182,22 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
 
     Call(codec_factory->CreateDecoderFromFile(filename, &decoder)); 
 
-    Call(decoder->GetSize(decoder, &image->width, &image->height)); 
-    Call(decoder->GetResolution(decoder, &image->resolution_x, &image->resolution_y));    
-    Call(decoder->GetPixelFormat(decoder, &image->pixel_format));
+	Call(decoder->GetSize(decoder, &image->width, &image->height)); 
+	Call(decoder->GetResolution(decoder, &image->resolution_x, &image->resolution_y));    
+	Call(decoder->GetPixelFormat(decoder, &image->pixel_format));
 
-    Call(decoder->GetColorContext(decoder, NULL, &image->color_context_size));
-    if (image->color_context_size != 0)
+	Call(decoder->GetColorContext(decoder, NULL, &image->color_context_size));
+	if (image->color_context_size != 0)
+	{
+	    image->color_context = g_new(guchar, image->color_context_size);
+	    Call(decoder->GetColorContext(decoder, image->color_context, &image->color_context_size));
+	}
+
+    Call(_PKImageDecode_GetEXIFMetadata_WMP(decoder, NULL, &image->exif_metadata_size));
+    if (image->exif_metadata_size != 0)
     {
-        image->color_context = g_new(guchar, image->color_context_size);
-        Call(decoder->GetColorContext(decoder, image->color_context, &image->color_context_size));
+        image->exif_metadata = g_new(guchar, image->exif_metadata_size);
+        Call(_PKImageDecode_GetEXIFMetadata_WMP(decoder, image->exif_metadata, &image->exif_metadata_size));
     }
 
     Call(_PKImageDecode_GetXMPMetadata_WMP(decoder, NULL, &image->xmp_metadata_size));
@@ -198,14 +211,14 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
 
     Call(codec_factory->CreateFormatConverter(&converter));
     
-    err = get_target_pixel_format(&image->pixel_format, &target_format);
+    err = get_conv_pixel_format(&image->pixel_format, &conv_pixel_format) ? WMP_errSuccess : WMP_errFail;
 
     if (!Failed(err))
-        err = converter->Initialize(converter, decoder, NULL, *target_format);
+        err = converter->Initialize(converter, decoder, NULL, *conv_pixel_format);
     
     if (Failed(err))
     {
-        PKPixelFormatGUID* pf = &image->pixel_format;
+		PKPixelFormatGUID* pf = &image->pixel_format;
         gchar* mnemonic = get_pixel_format_mnemonic(pf);
 
         *error_message = g_new(gchar, 128);
@@ -218,19 +231,10 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
 
         goto Cleanup;
     }
-
-    if (get_bits_per_pixel(target_format) < get_bits_per_pixel(&image->pixel_format))
-    {
-        g_message(_("Warning:\n"
-                    "The image you are loading has a pixel format that is not directly supported by GIMP. "
-                    "In order to load this image it needs to be converted to a lower bit depth first. "
-                    "Information will be lost because of this conversion."));
-    }
     
-    decoder->WMP.wmiSCP.uAlphaMode = 
-        IsEqualGUID(target_format, &GUID_PKPixelFormat32bppRGBA) ? 2 : 0;
+    decoder->WMP.wmiSCP.uAlphaMode = has_pixel_format_alpha_channel(conv_pixel_format) ? 2 : 0;
 
-    image->stride = (image->width * max(get_bits_per_pixel(&image->pixel_format), get_bits_per_pixel(target_format)) + 7) / 8;
+    image->stride = (image->width * max(get_bits_per_pixel(&image->pixel_format), get_bits_per_pixel(conv_pixel_format)) + 7) / 8;
 
     Call(PKAllocAligned(&image->pixels, image->stride * image->height, 128));
 
@@ -241,26 +245,19 @@ static ERR jxrlib_load(const gchar* filename, Image* image, gchar** error_messag
 
     Call(converter->Copy(converter, &rect, image->pixels, image->stride)); 
     
-    if (!IsEqualGUID(target_format, &GUID_PKPixelFormatBlackWhite) &&
-        get_bits_per_pixel(&image->pixel_format) > get_bits_per_pixel(target_format))
-    {
-        guint bytes_per_pixel = get_bits_per_pixel(target_format) / 8;      
-        compact_stride(image->pixels, image->width, image->height, image->stride, bytes_per_pixel);   
-        image->stride = bytes_per_pixel * image->width;
-    }
-    
-    if (IsEqualGUID(target_format, &GUID_PKPixelFormatBlackWhite))
+    if (IsEqualGUID(conv_pixel_format, &GUID_PKPixelFormatBlackWhite))
     {
         guchar* conv_pixels; 
         
-        Call(convert_bw_indexed(image->pixels, image->width, image->height, &conv_pixels)); // should pass stride here
-                                                                                            // if there were formats converted to BlackWhite
+        Call(convert_bw_indexed(image->pixels, image->width, image->height, &conv_pixels));
 
         Call(PKFreeAligned(&image->pixels));
+
         image->pixels = conv_pixels;
+        image->stride = image->width;
     }
     
-    image->pixel_format = *target_format;
+    image->pixel_format = *conv_pixel_format;
         
 Cleanup:
     if (Failed(err) && image->pixels)
@@ -278,40 +275,18 @@ Cleanup:
     return err;
 }
 
-static ERR get_target_pixel_format(const PKPixelFormatGUID* source, const PKPixelFormatGUID** target)
+static gboolean get_conv_pixel_format(const PKPixelFormatGUID* source, const PKPixelFormatGUID** target)
 { 
-    ERR         err;
-    PKPixelInfo pixel_info;   
-    
-    pixel_info.pGUIDPixFmt = source;
-    
-    Call(PixelFormatLookup(&pixel_info, LOOKUP_FORWARD));
+    GimpImageBaseType base_type;
+    GimpImageType image_type;
+    GimpPrecision precision;
+    const Babl* babl_pixel_format;
 
-    if (pixel_info.grBit & PK_pixfmtHasAlpha)
-        *target = &GUID_PKPixelFormat32bppRGBA;
-    else if (pixel_info.cfColorFormat == Y_ONLY)
-        if (pixel_info.cbitUnit == 1)
-            *target = &GUID_PKPixelFormatBlackWhite;
-        else
-            *target = &GUID_PKPixelFormat8bppGray;
-    else
-        *target = &GUID_PKPixelFormat24bppRGB;
+    if (!get_image_type_and_precision_from_pixel_format(source, &base_type, &image_type, &precision, &babl_pixel_format, target))
+        return FALSE;
 
-Cleanup:
-    return err;
-}
+    if (*target == NULL)
+        *target = source;
 
-static void compact_stride(guchar* pixels, gint width, gint height, gint stride, gint bytes_per_pixel)
-{
-    gint    y;
-    guchar* src;
-    guchar* dst;
-    gint    new_stride = width * bytes_per_pixel;
-    
-    for (y = 1; y < height; y++)
-    {
-        src = pixels + y * stride;
-        dst = pixels + y * new_stride;
-        g_memmove(dst, src, new_stride);
-    }
+    return TRUE;
 }

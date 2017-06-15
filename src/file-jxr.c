@@ -46,7 +46,7 @@ static void query()
     };
 
     gimp_install_procedure(LOAD_PROC,
-        N_("Loads JPEG XR images"),
+        "Loads JPEG XR images",
         "Loads JPEG XR image files.",
         "Christoph Hausner",
         "Christoph Hausner",
@@ -62,7 +62,7 @@ static void query()
     gimp_register_magic_load_handler(LOAD_PROC, "jxr,wdp,hdp", "", "0,string,II\xBC");
     
     gimp_install_procedure(SAVE_PROC,
-        N_("Saves JPEG XR images"),
+        "Saves JPEG XR images",
         "Saves JPEG XR image files.",
         "Christoph Hausner",
         "Christoph Hausner",
@@ -79,6 +79,12 @@ static void query()
 
 static void run(const gchar* name, gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** return_vals)
 {
+    bindtextdomain(GETTEXT_PACKAGE, gimp_locale_directory());
+    bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8");
+    textdomain(GETTEXT_PACKAGE);
+    
+	gegl_init(NULL, NULL);
+
     if (strcmp(name, LOAD_PROC) == 0)
         load(nparams, param, nreturn_vals, return_vals);
     else if (strcmp(name, SAVE_PROC) == 0)

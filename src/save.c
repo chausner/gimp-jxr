@@ -1,8 +1,8 @@
 #include "file-jxr.h"
-#include <JXRGlue.h>
 #include "utils.h"
-
+#include <JXRGlue.h>
 #include <libgimp/gimpui.h>
+#include <gexiv2/gexiv2.h>
 
 typedef enum
 {
@@ -35,6 +35,8 @@ typedef struct
     OverlapSetting      overlap;
     SubsamplingSetting  subsampling;
     TilingSetting       tiling; 
+    gboolean            save_metadata;
+    gboolean            embed_color_profile;
 } SaveOptions;
 
 typedef struct
@@ -54,18 +56,26 @@ typedef struct
     GtkWidget*  subsampling_combo_box;
     GtkWidget*  tiling_label;
     GtkWidget*  tiling_combo_box;
+    GtkWidget*  save_metadata_check_button;
+    GtkWidget*  embed_color_profile_check_button;
     GtkWidget*  lossless_label;
+    GtkWidget*  pixel_format_label;
     GtkWidget*  defaults_table;
-    GtkWidget*  defaults_button;
+    GtkWidget*  load_defaults_button;
+    GtkWidget*  save_defaults_button;
 } SaveGui;
 
-static const SaveOptions DEFAULT_SAVE_OPTIONS = { 90, 100, OVERLAP_AUTO, SUBSAMPLING_444, TILING_NONE };
+static const SaveOptions DEFAULT_SAVE_OPTIONS = { 90, 100, OVERLAP_AUTO, SUBSAMPLING_444, TILING_NONE, TRUE, TRUE };
 
 static ERR jxrlib_save(const gchar *filename, const Image* image, const SaveOptions* save_options);
 static void apply_save_options(const SaveOptions* save_options, guint width, guint height, PKPixelFormatGUID pixel_format, gboolean black_one, CWMIStrCodecParam* wmiSCP, CWMIStrCodecParam* wmiSCP_Alpha);
-static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, gboolean subsampling_enabled);
+static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, gboolean subsampling_enabled, const PKPixelFormatGUID* pixel_format);
 static void load_save_gui_defaults(const SaveGui* save_gui);
-static void open_help(const gchar* help_id, gpointer help_data);
+static void save_save_gui_defaults(const SaveGui* save_gui);
+static void update_save_gui(const SaveGui* save_gui, const SaveOptions* save_options);
+static void get_save_options(const SaveGui* save_gui, SaveOptions* save_options);
+static gboolean load_save_gui_defaults_from_parasite(SaveOptions* save_options);
+static void save_save_gui_defaults_to_parasite(const SaveOptions* save_options);
 
 void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** return_vals)
 {
@@ -73,7 +83,7 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     GimpExportCapabilities  capabilities;
     GimpExportReturn        export_return;
 
-    SaveOptions             save_options = DEFAULT_SAVE_OPTIONS;
+    SaveOptions             save_options;
 
     gchar*                  filename;
     Image                   image;
@@ -82,10 +92,12 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     GimpRunMode             run_mode;
     gint32                  image_ID;
     gint32                  drawable_ID;
+    GimpPrecision           precision;
     GimpImageType           image_type;
+    const Babl*             babl_pixel_format;
+    gint                    bpp;
 
-    GimpPixelRgn            pixel_rgn;
-    GimpDrawable*           drawable;
+    GeglBuffer*             gegl_buffer;
 
     ERR                     err;
 
@@ -93,7 +105,7 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     gboolean                subsampling_enabled;
 
     GimpParasite*           icc_parasite;
-    GimpParasite*           xmp_parasite;
+    GimpMetadata*           metadata;
 
 /*#ifdef _DEBUG
     while (TRUE) { }
@@ -125,58 +137,65 @@ Export:
     {
         ret_values[0].data.d_status = GIMP_PDB_CANCEL;
         return;
-    }
-    
+    }    
+
     image_type = gimp_drawable_type(drawable_ID);
-        
+
+    precision = gimp_image_get_precision(image_ID);    
+
     switch (image_type)
     {
     case GIMP_RGB_IMAGE:
-        image.pixel_format = GUID_PKPixelFormat24bppRGB; 
-        break;
     case GIMP_RGBA_IMAGE:
-        image.pixel_format = GUID_PKPixelFormat32bppBGRA;
-        break;
     case GIMP_GRAY_IMAGE:
-        image.pixel_format = GUID_PKPixelFormat8bppGray;
+        get_pixel_format_from_image_type_and_precision(image_type, precision, &image.pixel_format, &babl_pixel_format);
         break;
     case GIMP_GRAYA_IMAGE:
-        ret_values[1].type          = GIMP_PDB_STRING;
+        /*ret_values[1].type          = GIMP_PDB_STRING;
         ret_values[1].data.d_string = _("Grayscale images with an alpha channel are not supported.");
-        return;
+        return;*/
+        gimp_image_delete(image_ID);
+        capabilities &= GIMP_EXPORT_CAN_HANDLE_RGB | GIMP_EXPORT_CAN_HANDLE_ALPHA;
+        goto Export;
     case GIMP_INDEXED_IMAGE:        
         if (has_blackwhite_colormap(image_ID, &image.black_one))
         {
             image.pixel_format = GUID_PKPixelFormatBlackWhite;
+            babl_pixel_format = gimp_drawable_get_format(drawable_ID);
         }
         else
         {
-            ret_values[1].type          = GIMP_PDB_STRING;
+            /*ret_values[1].type          = GIMP_PDB_STRING;
             ret_values[1].data.d_string = _("Indexed images are not supported except for black-white colormaps.");
-            return;
-            /*gimp_image_delete(image_ID);
+            return;*/
+            gimp_image_delete(image_ID);
             capabilities &= GIMP_EXPORT_CAN_HANDLE_RGB | GIMP_EXPORT_CAN_HANDLE_GRAY | GIMP_EXPORT_CAN_HANDLE_ALPHA;
-            goto Export;*/
+            goto Export;
         }
         break;
     case GIMP_INDEXEDA_IMAGE:
-        ret_values[1].type          = GIMP_PDB_STRING;
+        /*ret_values[1].type          = GIMP_PDB_STRING;
         ret_values[1].data.d_string = _("Indexed images with an alpha channel are not supported.");
-        return;
+        return;*/
+        gimp_image_delete(image_ID);
+        capabilities &= GIMP_EXPORT_CAN_HANDLE_RGB | GIMP_EXPORT_CAN_HANDLE_GRAY | GIMP_EXPORT_CAN_HANDLE_ALPHA;
+        goto Export;
     default:
         ret_values[1].type          = GIMP_PDB_STRING;
         ret_values[1].data.d_string = _("Image has an unsupported pixel format.");
         return;
     }
+
+    if (!load_save_gui_defaults_from_parasite(&save_options))
+        save_options = DEFAULT_SAVE_OPTIONS;
     
     switch (run_mode)
     {
     case GIMP_RUN_INTERACTIVE:
         gimp_get_data(SAVE_PROC, &save_options);
-        alpha_enabled = IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA);
-        subsampling_enabled = IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat24bppRGB) ||
-            IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA);
-        if (show_options(&save_options, alpha_enabled, subsampling_enabled))
+        alpha_enabled = has_pixel_format_alpha_channel(&image.pixel_format);
+        subsampling_enabled = image_type == GIMP_RGB_IMAGE || image_type == GIMP_RGBA_IMAGE;
+        if (show_options(&save_options, alpha_enabled, subsampling_enabled, &image.pixel_format))
         {
             gimp_set_data(SAVE_PROC, &save_options, sizeof(SaveOptions));
         }
@@ -188,19 +207,23 @@ Export:
         break;
 
     case GIMP_RUN_NONINTERACTIVE:
-        if (nparams == 10)
+        if (nparams == 12)
         {
-            save_options.image_quality = param[5].data.d_int32;
-            save_options.alpha_quality = param[6].data.d_int32;
-            save_options.overlap       = param[7].data.d_int32;
-            save_options.subsampling   = param[8].data.d_int32;
-            save_options.tiling        = param[9].data.d_int32;
+            save_options.image_quality       = param[5].data.d_int32;
+            save_options.alpha_quality       = param[6].data.d_int32;
+            save_options.overlap             = param[7].data.d_int32;
+            save_options.subsampling         = param[8].data.d_int32;
+            save_options.tiling              = param[9].data.d_int32;
+            save_options.save_metadata       = param[10].data.d_int32;
+            save_options.embed_color_profile = param[11].data.d_int32;
             
-            if (save_options.image_quality < 0 || save_options.image_quality > 100 ||
-                save_options.alpha_quality < 0 || save_options.alpha_quality > 100 ||
-                save_options.overlap < 0       || save_options.overlap > 3 ||
-                save_options.subsampling < 0   || save_options.subsampling > 3 ||
-                save_options.tiling < 0        || save_options.tiling > 3)
+            if (save_options.image_quality < 0       || save_options.image_quality > 100 ||
+                save_options.alpha_quality < 0       || save_options.alpha_quality > 100 ||
+                save_options.overlap < 0             || save_options.overlap > 3         ||
+                save_options.subsampling < 0         || save_options.subsampling > 3     ||
+                save_options.tiling < 0              || save_options.tiling > 3          ||
+                save_options.save_metadata < 0       || save_options.save_metadata > 1   ||
+                save_options.embed_color_profile < 0 || save_options.embed_color_profile > 1)
             {
                 ret_values[0].data.d_status = GIMP_PDB_CALLING_ERROR;
                 return;
@@ -220,10 +243,10 @@ Export:
     
     gimp_progress_init_printf(_("Saving '%s'"), gimp_filename_to_utf8(filename));
 
-    drawable = gimp_drawable_get(drawable_ID);
+    gegl_buffer = gimp_drawable_get_buffer(drawable_ID);
 
-    image.width   = drawable->width;
-    image.height  = drawable->height;
+    image.width   = gegl_buffer_get_width(gegl_buffer);
+    image.height  = gegl_buffer_get_height(gegl_buffer);
 
     if (!gimp_image_get_resolution(image_ID, &res_x, &res_y))
     {
@@ -236,7 +259,9 @@ Export:
         image.resolution_y = (gfloat)res_y;
     }
 
-    image.stride = image.width * drawable->bpp;
+    bpp = babl_format_get_bytes_per_pixel(babl_pixel_format);
+
+    image.stride = image.width * bpp;
 
     err = PKAllocAligned(&image.pixels, image.stride * image.height, 128);
     
@@ -247,10 +272,10 @@ Export:
         return;
     }
 
-    gimp_pixel_rgn_init(&pixel_rgn, drawable, 0, 0, image.width, image.height, FALSE, FALSE);
-    gimp_pixel_rgn_get_rect(&pixel_rgn, image.pixels, 0, 0, image.width, image.height);
+    gegl_buffer_get(gegl_buffer, GEGL_RECTANGLE(0, 0, image.width, image.height), 1.0, babl_pixel_format, 
+        image.pixels, image.stride, GEGL_ABYSS_NONE);
 
-    gimp_drawable_detach(drawable);
+    g_object_unref(gegl_buffer);
     
     if (export_return == GIMP_EXPORT_EXPORT)
         gimp_image_delete(image_ID);
@@ -260,24 +285,24 @@ Export:
         convert_indexed_bw(image.pixels, image.width, image.height);
         image.stride = (image.width + 7) / 8;
     }
-    else if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA))
-        convert_rgba_bgra(image.pixels, image.width, image.height);
 
     icc_parasite = gimp_image_parasite_find(image_ID, "icc-profile");
 
     if (icc_parasite != NULL)
     {
-        image.color_context = gimp_parasite_data(icc_parasite);
+        image.color_context = (guchar*)gimp_parasite_data(icc_parasite);
         image.color_context_size = gimp_parasite_data_size(icc_parasite);
     }
 
-    xmp_parasite = gimp_image_parasite_find(image_ID, "gimp-metadata");
+    /*metadata = gimp_image_get_metadata(image_ID);
 
-    if (xmp_parasite != NULL && gimp_parasite_data_size(xmp_parasite) > 10 && strncmp(gimp_parasite_data(xmp_parasite), "GIMP_XMP_1", 10) == 0)
+    if (metadata != NULL && gexiv2_metadata_has_xmp(metadata))
     {
-        image.xmp_metadata = (guchar*)gimp_parasite_data(xmp_parasite) + 10; // skip metadata marker "GIMP_XMP_1"
-        image.xmp_metadata_size = gimp_parasite_data_size(xmp_parasite) - 10;
-    }
+        gchar** tags = gexiv2_metadata_get_xmp_tags(metadata);
+        gchar* serialized = gimp_metadata_serialize(metadata);
+        image.exif_metadata = gexiv2_metadata_get_xmp_packet(metadata);
+        image.exif_metadata_size = strlen(image.exif_metadata) + 1;
+    }*/
 
     err = jxrlib_save(filename, &image, &save_options);
 
@@ -286,11 +311,6 @@ Export:
     if (icc_parasite != NULL)
     {
         gimp_parasite_free(icc_parasite);
-    }
-
-    if (xmp_parasite != NULL)
-    {
-        gimp_parasite_free(xmp_parasite);
     }
 
     if (!Failed(err))
@@ -327,20 +347,33 @@ static ERR jxrlib_save(const gchar *filename, const Image* image, const SaveOpti
     
     Call(encoder->Initialize(encoder, stream, &wmiSCP, sizeof(wmiSCP)));
 
-    apply_save_options(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, &encoder->WMP.wmiSCP_Alpha); 
+    apply_save_options(save_options, image->width, image->height, image->pixel_format, image->black_one, &wmiSCP, &encoder->WMP.wmiSCP_Alpha);
     
     Call(encoder->SetPixelFormat(encoder, image->pixel_format));
     Call(encoder->SetSize(encoder, image->width, image->height));
     Call(encoder->SetResolution(encoder, image->resolution_x, image->resolution_y));
     
-    if (image->color_context_size != 0)
+    if (save_options->embed_color_profile && image->color_context_size != 0)
     {
         Call(encoder->SetColorContext(encoder, image->color_context, image->color_context_size));
     }
 
-    if (image->xmp_metadata_size != 0)
+    if (save_options->save_metadata)
     {
-        Call(PKImageEncode_SetXMPMetadata_WMP(encoder, image->xmp_metadata, image->xmp_metadata_size));
+        if (image->exif_metadata_size != 0)
+        {
+            Call(PKImageEncode_SetEXIFMetadata_WMP(encoder, image->exif_metadata, image->exif_metadata_size));
+        }
+
+        if (image->xmp_metadata_size != 0)
+        {
+            Call(PKImageEncode_SetXMPMetadata_WMP(encoder, image->xmp_metadata, image->xmp_metadata_size));
+        }
+
+        if (image->iptc_metadata_size != 0)
+        {
+            Call(PKImageEncode_SetIPTCNAAMetadata_WMP(encoder, image->iptc_metadata, image->iptc_metadata_size));
+        }
     }
 
     Call(encoder->WritePixels(encoder, image->height, image->pixels, image->stride));
@@ -399,11 +432,10 @@ static void apply_save_options(const SaveOptions* save_options, guint width, gui
     wmiSCP->bfBitstreamFormat = FREQUENCY;
     wmiSCP->bProgressiveMode = TRUE;    
     wmiSCP->sbSubband = SB_ALL;
-    wmiSCP->uAlphaMode = IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA) ? 2 : 0;
+    wmiSCP->uAlphaMode = has_pixel_format_alpha_channel(&pixel_format) ? 2 : 0;
     wmiSCP->bBlackWhite = black_one;    
     
-    if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormatBlackWhite) ||
-        IsEqualGUID(&pixel_format, &GUID_PKPixelFormat8bppGray))
+    if (!has_pixel_format_color_channels(&pixel_format))
         wmiSCP->cfColorFormat = Y_ONLY;
     else
         wmiSCP->cfColorFormat = (COLORFORMAT)save_options->subsampling;
@@ -449,7 +481,7 @@ static void apply_save_options(const SaveOptions* save_options, guint width, gui
         }
     }  
 
-    if (IsEqualGUID(&pixel_format, &GUID_PKPixelFormat32bppBGRA) && wmiSCP_Alpha != NULL)
+    if (has_pixel_format_alpha_channel(&pixel_format) && wmiSCP_Alpha != NULL)
     {
         gfloat aq_float = save_options->alpha_quality / 100.0f;
     
@@ -507,7 +539,7 @@ static void apply_save_options(const SaveOptions* save_options, guint width, gui
     }
 }
 
-static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, gboolean subsampling_enabled)
+static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, gboolean subsampling_enabled, const PKPixelFormatGUID* pixel_format)
 {
     SaveGui     save_gui;
     gboolean    dialog_result;
@@ -546,6 +578,12 @@ static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, 
     gtk_misc_set_alignment(GTK_MISC(save_gui.lossless_label), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(save_gui.vbox), save_gui.lossless_label, FALSE, FALSE, 0);
     gtk_widget_show(save_gui.lossless_label);
+
+    text = g_strdup_printf(_("Pixel format: %s"), get_pixel_format_mnemonic(pixel_format));
+    save_gui.pixel_format_label = gtk_label_new(text);
+    gtk_misc_set_alignment(GTK_MISC(save_gui.pixel_format_label), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(save_gui.vbox), save_gui.pixel_format_label, FALSE, FALSE, 0);
+    gtk_widget_show(save_gui.pixel_format_label);
     
     text = g_strdup_printf("<b>%s</b>", _("_Advanced Options"));
     save_gui.advanced_expander = gtk_expander_new_with_mnemonic(text);
@@ -562,9 +600,10 @@ static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, 
     gtk_box_pack_start(GTK_BOX(save_gui.advanced_vbox), save_gui.advanced_frame, FALSE, FALSE, 0);
     gtk_widget_show(save_gui.advanced_frame);
     
-    save_gui.advanced_table = gtk_table_new(3, 2, FALSE);
+    save_gui.advanced_table = gtk_table_new(3, 3, FALSE);
     gtk_table_set_col_spacings(GTK_TABLE(save_gui.advanced_table), 6);
-    gtk_table_set_row_spacings(GTK_TABLE(save_gui.advanced_table), 6);
+    gtk_table_set_col_spacing(GTK_TABLE(save_gui.advanced_table), 1, 50);
+    gtk_table_set_row_spacings(GTK_TABLE(save_gui.advanced_table), 6);    
     gtk_container_add(GTK_CONTAINER(save_gui.advanced_frame), save_gui.advanced_table);
     gtk_widget_show(save_gui.advanced_table);
     
@@ -576,8 +615,8 @@ static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, 
     save_gui.overlap_combo_box = gtk_combo_box_new_text();
     gtk_combo_box_append_text(GTK_COMBO_BOX(save_gui.overlap_combo_box), _("Auto"));
     gtk_combo_box_append_text(GTK_COMBO_BOX(save_gui.overlap_combo_box), _("None"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(save_gui.overlap_combo_box), _("One level"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(save_gui.overlap_combo_box), _("Two level"));
+    gtk_combo_box_append_text(GTK_COMBO_BOX(save_gui.overlap_combo_box), _("One-level"));
+    gtk_combo_box_append_text(GTK_COMBO_BOX(save_gui.overlap_combo_box), _("Two-level"));
     gtk_combo_box_set_active(GTK_COMBO_BOX(save_gui.overlap_combo_box), save_options->overlap);
     gtk_widget_set_tooltip_text(save_gui.overlap_combo_box, _("Higher levels reduce block artifacts but may introduce blurring and increase decoding time."));
     gtk_label_set_mnemonic_widget(GTK_LABEL(save_gui.overlap_label), save_gui.overlap_combo_box);
@@ -617,27 +656,41 @@ static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, 
     gtk_label_set_mnemonic_widget(GTK_LABEL(save_gui.tiling_label), save_gui.tiling_combo_box);
     gtk_table_attach(GTK_TABLE(save_gui.advanced_table), save_gui.tiling_combo_box, 1, 2, 2, 3, GTK_FILL, (GtkAttachOptions)0, 0, 0);
     gtk_widget_show(save_gui.tiling_combo_box); 
+    
+    save_gui.save_metadata_check_button = gtk_check_button_new_with_mnemonic(_("Save _metadata"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(save_gui.save_metadata_check_button), save_options->save_metadata);
+    gtk_misc_set_alignment(GTK_MISC(save_gui.save_metadata_check_button), 0.0, 0.5);
+    gtk_table_attach(GTK_TABLE(save_gui.advanced_table), save_gui.save_metadata_check_button, 2, 3, 0, 1, GTK_FILL, (GtkAttachOptions) 0, 0, 0);
+    gtk_widget_show(save_gui.save_metadata_check_button);
+    
+    save_gui.embed_color_profile_check_button = gtk_check_button_new_with_mnemonic(_("Embed _color profile"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(save_gui.embed_color_profile_check_button), save_options->embed_color_profile);
+    gtk_misc_set_alignment(GTK_MISC(save_gui.embed_color_profile_check_button), 0.0, 0.5);
+    gtk_table_attach(GTK_TABLE(save_gui.advanced_table), save_gui.embed_color_profile_check_button, 2, 3, 1, 2, GTK_FILL, (GtkAttachOptions) 0, 0, 0);
+    gtk_widget_show(save_gui.embed_color_profile_check_button);
 
     save_gui.defaults_table = gtk_table_new(1, 3, FALSE);
     gtk_table_set_col_spacings(GTK_TABLE(save_gui.defaults_table), 6);
     gtk_box_pack_start(GTK_BOX(save_gui.vbox), save_gui.defaults_table, FALSE, FALSE, 0);
     gtk_widget_show(save_gui.defaults_table);
 
-    save_gui.defaults_button = gtk_button_new_with_mnemonic(_("_Load Defaults"));
-    gtk_table_attach(GTK_TABLE(save_gui.defaults_table), save_gui.defaults_button, 0, 1, 1, 2, GTK_FILL, (GtkAttachOptions)0, 0, 0);
-    gtk_widget_show(save_gui.defaults_button); 
+    save_gui.load_defaults_button = gtk_button_new_with_mnemonic(_("_Load Defaults"));
+    gtk_table_attach(GTK_TABLE(save_gui.defaults_table), save_gui.load_defaults_button, 0, 1, 1, 2, GTK_FILL, (GtkAttachOptions) 0, 0, 0);
+    gtk_widget_show(save_gui.load_defaults_button);
 
-    g_signal_connect_swapped(save_gui.defaults_button, "clicked", G_CALLBACK(load_save_gui_defaults), &save_gui);
+    g_signal_connect_swapped(save_gui.load_defaults_button, "clicked", G_CALLBACK(load_save_gui_defaults), &save_gui);
+
+    save_gui.save_defaults_button = gtk_button_new_with_mnemonic(_("_Save Defaults"));
+    gtk_table_attach(GTK_TABLE(save_gui.defaults_table), save_gui.save_defaults_button, 1, 2, 1, 2, GTK_FILL, (GtkAttachOptions) 0, 0, 0);
+    gtk_widget_show(save_gui.save_defaults_button);
+
+    g_signal_connect_swapped(save_gui.save_defaults_button, "clicked", G_CALLBACK(save_save_gui_defaults), &save_gui);
     
     gtk_widget_show(save_gui.dialog);
 
     dialog_result = gimp_dialog_run(GIMP_DIALOG(save_gui.dialog)) == GTK_RESPONSE_OK;
-    
-    save_options->image_quality = (gint)gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui.quality_entry));
-    save_options->alpha_quality = (gint)gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui.alpha_quality_entry));
-    save_options->overlap = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui.overlap_combo_box));
-    save_options->subsampling = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui.subsampling_combo_box));
-    save_options->tiling = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui.tiling_combo_box));
+
+    get_save_options(&save_gui, save_options);
 
     gtk_widget_destroy(save_gui.dialog);
 
@@ -646,28 +699,92 @@ static gboolean show_options(SaveOptions* save_options, gboolean alpha_enabled, 
 
 static void load_save_gui_defaults(const SaveGui* save_gui)
 {   
-    gtk_adjustment_set_value(GTK_ADJUSTMENT(save_gui->quality_entry), DEFAULT_SAVE_OPTIONS.image_quality);
-    gtk_adjustment_set_value(GTK_ADJUSTMENT(save_gui->alpha_quality_entry), DEFAULT_SAVE_OPTIONS.alpha_quality);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(save_gui->overlap_combo_box), DEFAULT_SAVE_OPTIONS.overlap);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(save_gui->subsampling_combo_box), DEFAULT_SAVE_OPTIONS.subsampling);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(save_gui->tiling_combo_box), DEFAULT_SAVE_OPTIONS.tiling);
+    SaveOptions save_options;
+
+    if (!load_save_gui_defaults_from_parasite(&save_options))
+        save_options = DEFAULT_SAVE_OPTIONS;
+
+    update_save_gui(save_gui, &save_options);
 }
 
-/*static void open_help(const gchar* help_id, gpointer help_data)
+static void save_save_gui_defaults(const SaveGui* save_gui)
 {
-#ifdef _WIN32
-    ShellExecute(NULL, "open", "http://github.com/chausner/gimp-jxr", NULL, NULL, SW_SHOWNORMAL);
-#else
-    pid_t pid;
-    char *args[3];
+    SaveOptions save_options;
 
-    args[0] = "/usr/bin/xdg-open";
-    args[1] = "http://github.com/chausner/gimp-jxr";
-    args[2] = NULL;
-    
-    pid = fork();
-    
-    if (!pid)
-        execvp(args[0], args);
-#endif
-}*/
+    get_save_options(save_gui, &save_options);
+
+    save_save_gui_defaults_to_parasite(&save_options);
+}
+
+static void update_save_gui(const SaveGui* save_gui, const SaveOptions* save_options)
+{
+    gtk_adjustment_set_value(GTK_ADJUSTMENT(save_gui->quality_entry), save_options->image_quality);
+    gtk_adjustment_set_value(GTK_ADJUSTMENT(save_gui->alpha_quality_entry), save_options->alpha_quality);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(save_gui->overlap_combo_box), save_options->overlap);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(save_gui->subsampling_combo_box), save_options->subsampling);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(save_gui->tiling_combo_box), save_options->tiling);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(save_gui->save_metadata_check_button), save_options->save_metadata);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(save_gui->embed_color_profile_check_button), save_options->embed_color_profile);
+}
+
+static void get_save_options(const SaveGui* save_gui, SaveOptions* save_options)
+{
+    save_options->image_quality = (gint) gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui->quality_entry));
+    save_options->alpha_quality = (gint) gtk_adjustment_get_value(GTK_ADJUSTMENT(save_gui->alpha_quality_entry));
+    save_options->overlap = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui->overlap_combo_box));
+    save_options->subsampling = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui->subsampling_combo_box));
+    save_options->tiling = gtk_combo_box_get_active(GTK_COMBO_BOX(save_gui->tiling_combo_box));
+    save_options->save_metadata = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(save_gui->save_metadata_check_button));
+    save_options->embed_color_profile = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(save_gui->embed_color_profile_check_button));
+}
+
+static gboolean load_save_gui_defaults_from_parasite(SaveOptions* save_options)
+{
+    GimpParasite *parasite;
+    gchar        *parasite_data;
+    gint          num_params_read;
+
+    parasite = gimp_get_parasite("jxr-save-defaults");
+
+    if (parasite == NULL)
+        return FALSE;
+
+    parasite_data = g_strndup(gimp_parasite_data(parasite), gimp_parasite_data_size(parasite));
+
+    gimp_parasite_free(parasite);
+
+    num_params_read = sscanf(parasite_data, "%d %d %d %d %d %d %d",
+        &save_options->image_quality,
+        &save_options->alpha_quality,
+        &save_options->overlap,
+        &save_options->subsampling,
+        &save_options->tiling,
+        &save_options->save_metadata,
+        &save_options->embed_color_profile);
+
+    g_free(parasite_data);
+
+    return num_params_read == 7;
+}
+
+static void save_save_gui_defaults_to_parasite(const SaveOptions* save_options)
+{
+    GimpParasite *parasite;
+    gchar        *parasite_data;
+
+    parasite_data = g_strdup_printf("%d %d %d %d %d %d %d",
+        save_options->image_quality,
+        save_options->alpha_quality,
+        save_options->overlap,
+        save_options->subsampling,
+        save_options->tiling,
+        save_options->save_metadata,
+        save_options->embed_color_profile);
+
+    parasite = gimp_parasite_new("jxr-save-defaults", GIMP_PARASITE_PERSISTENT, strlen(parasite_data), parasite_data);
+
+    gimp_attach_parasite(parasite);
+
+    gimp_parasite_free(parasite);
+    g_free(parasite_data);
+}
