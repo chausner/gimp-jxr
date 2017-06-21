@@ -81,6 +81,7 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
 
     GimpRunMode             run_mode;
     gint32                  image_ID;
+    gint32                  orig_image_ID;
     gint32                  drawable_ID;
     GimpImageType           image_type;
 
@@ -99,10 +100,11 @@ void save(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     while (TRUE) { }
 #endif*/
     
-    run_mode    = (GimpRunMode)param[0].data.d_int32;
-    image_ID    = param[1].data.d_int32;
-    drawable_ID = param[2].data.d_int32;
-    filename    = param[3].data.d_string;
+    run_mode      = (GimpRunMode)param[0].data.d_int32;
+    image_ID      = param[1].data.d_int32;    
+    drawable_ID   = param[2].data.d_int32;
+    filename      = param[3].data.d_string;
+    orig_image_ID = image_ID;
     
     ret_values = g_new(GimpParam, 2);
 
@@ -251,7 +253,7 @@ Export:
     gimp_pixel_rgn_get_rect(&pixel_rgn, image.pixels, 0, 0, image.width, image.height);
 
     gimp_drawable_detach(drawable);
-    
+
     if (export_return == GIMP_EXPORT_EXPORT)
         gimp_image_delete(image_ID);
         
@@ -263,7 +265,7 @@ Export:
     else if (IsEqualGUID(&image.pixel_format, &GUID_PKPixelFormat32bppBGRA))
         convert_rgba_bgra(image.pixels, image.width, image.height);
 
-    icc_parasite = gimp_image_parasite_find(image_ID, "icc-profile");
+    icc_parasite = gimp_image_parasite_find(orig_image_ID, "icc-profile");
 
     if (icc_parasite != NULL)
     {
@@ -271,7 +273,7 @@ Export:
         image.color_context_size = gimp_parasite_data_size(icc_parasite);
     }
 
-    xmp_parasite = gimp_image_parasite_find(image_ID, "gimp-metadata");
+    xmp_parasite = gimp_image_parasite_find(orig_image_ID, "gimp-metadata");
 
     if (xmp_parasite != NULL && gimp_parasite_data_size(xmp_parasite) > 10 && strncmp(gimp_parasite_data(xmp_parasite), "GIMP_XMP_1", 10) == 0)
     {
