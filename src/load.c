@@ -38,7 +38,7 @@ void load(gint nparams, const GimpParam* param, gint* nreturn_vals, GimpParam** 
     *nreturn_vals = 2;
     *return_vals = ret_values;  
 
-    gimp_progress_init_printf(_("Loading '%s'"), gimp_filename_to_utf8(filename));
+    gimp_progress_init_printf(_("Opening '%s'"), gimp_filename_to_utf8(filename));
 
     /*time = clock();*/
 
