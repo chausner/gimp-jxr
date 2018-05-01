@@ -29,7 +29,7 @@ Installation
 The plugin is designed to run with GIMP version 2.8.x.
 
 ### Windows
-Take the [pre-compiled binary](https://github.com/chausner/gimp-jxr/releases/latest) and put it into "%USERPROFILE%\\.gimp-2.8\plug-ins" (create the folder if it doesn't exist). Make sure you are using the x64 version of the plugin if your GIMP installation is 64-bit, otherwise use the x86 version. If you get the error code 0xc000007b on GIMP startup, you are using the wrong version of the plugin.
+Take the [pre-compiled binary](https://github.com/chausner/gimp-jxr/releases/latest) and put it into "%USERPROFILE%\\.gimp-2.8\plug-ins" or "%PROGRAMFILES%\GIMP 2\lib\gimp\2.0\plug-ins" (create the folder if it doesn't exist). Make sure you are using the x64 version of the plugin if your GIMP installation is 64-bit, otherwise use the x86 version. If you get the error code 0xc000007b on GIMP startup, you are using the wrong version of the plugin.
 
 ### Ubuntu
 1. Make sure GIMP 2.8.x is installed and you have all required development files:
