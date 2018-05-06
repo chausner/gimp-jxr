@@ -1,5 +1,5 @@
 # gimp-jxr
-GIMP plugin for reading and writing of JPEG XR image files. 
+GIMP plugin for reading and writing of JPEG XR image files. The plugin is designed to run with GIMP version 2.8.x. A version targeting GIMP 2.9 (albeit unfinished) can be found in the [gimp-2.9](https://github.com/chausner/gimp-jxr/tree/gimp-2.9) branch.
 
 [![license](https://img.shields.io/github/license/chausner/gimp-jxr.svg)](https://github.com/chausner/gimp-jxr/blob/master/LICENSE)
 
