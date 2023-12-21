@@ -1,0 +1,26 @@
+name: Makefile CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install apt dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y libgimp2.0-dev libjxr0 libjxr-dev
+
+    - name: make
+      run: make
+
+    - name: make install
+      run: make install
